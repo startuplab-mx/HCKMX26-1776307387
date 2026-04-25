@@ -20,25 +20,11 @@ class NlpProcessor(private val context: Context) {
     // ══════════════════════════════════════════════════
     companion object {
         private const val TAG              = "MinorNlp"
-        private const val MODEL_PATH       = "models/nlp_model.tflite"
-        private const val MAX_TOKENS       = 100        // Longitud máxima de secuencia
-        // VOCAB_SIZE debe coincidir con el embedding lookup del modelo .tflite.
-        // Error "gather index out of bounds" = este valor es mayor que el vocab real.
-        // Instrucciones: correr inspect_model.py en el modelo para obtener el valor correcto.
-        // Mientras tanto, usamos hash % VOCAB_SIZE con un guard adicional.
-        private const val VOCAB_SIZE       = 100        // Safe lower bound hasta recibir vocab real
+        private const val MODEL_PATH       = "models/nlp_model_lastest.tflite"
+        private const val VOCAB_PATH       = "models/vocab.txt"
+        private const val LABELS_PATH      = "models/labels.txt"
+        private const val MAX_TOKENS       = 120        // Longitud máxima de secuencia
         private const val NUM_THREADS      = 2          // Threads de CPU para inferencia
-        private const val OUTPUT_CLASSES   = 5          // Número de clases de salida
-
-        // Labels de salida — alinear con el orden del modelo
-        // Verificar con el equipo NLP el orden exacto
-        val OUTPUT_LABELS = arrayOf(
-            "SAFE",
-            "PROFILING",
-            "RECRUITMENT",
-            "COERCION",
-            "CRITICAL"
-        )
     }
 
     // ══════════════════════════════════════════════════
@@ -47,25 +33,52 @@ class NlpProcessor(private val context: Context) {
     private var interpreter: Interpreter? = null
     private var isInitialized = false
 
+    // Vocab cargado desde assets/models/vocab.txt
+    private var vocab: Map<String, Int> = emptyMap()
+
+    // Labels cargadas desde assets/models/labels.txt
+    // Se usan en lugar de hardcoding para alinear siempre con el modelo
+    private var outputLabels: Array<String> = arrayOf("safe", "reclutamiento")
+
     // ══════════════════════════════════════════════════
     // INICIALIZACIÓN — cargar modelo desde assets
     // Llamar una sola vez al arrancar el servicio
     // ══════════════════════════════════════════════════
     fun initialize(): Result<Unit> {
         return try {
+            // Cargar vocab desde assets
+            vocab = loadVocab()
+            Log.d(TAG, "Vocab loaded: ${vocab.size} tokens")
+
+            // Cargar labels desde assets (sincroniza con el modelo sin cambiar código)
+            outputLabels = loadLabels()
+            Log.d(TAG, "Labels loaded: ${outputLabels.toList()}")
+
             val modelBuffer = loadModelFromAssets()
 
-            // Usar CPU (NUM_THREADS) — más estable para NLP y Emuladores
             val options = Interpreter.Options().apply {
                 numThreads = NUM_THREADS
             }
 
             interpreter = Interpreter(modelBuffer, options)
+            
+            // Log input details for debugging
+            val inputTensor = interpreter!!.getInputTensor(0)
+            Log.d(TAG, "Model input tensor: index=${inputTensor.index()}, name=${inputTensor.name()}, shape=${inputTensor.shape().contentToString()}, type=${inputTensor.dataType()}")
+
+            // Verificar que OUTPUT_CLASSES coincide con el modelo
+            val outputShape = interpreter!!.getOutputTensor(0).shape()
+            val modelClasses = outputShape[1]
+            Log.d(TAG, "Model output classes: $modelClasses, labels count: ${outputLabels.size}")
+            if (modelClasses != outputLabels.size) {
+                Log.w(TAG, "WARNING: model outputs $modelClasses classes but labels.txt has ${outputLabels.size} entries!")
+            }
+
             isInitialized = true
             Result.success(Unit)
 
         } catch (e: Exception) {
-            Result.failure(Exception("Error cargando $MODEL_PATH: ${e.message}"))
+            Result.failure(Exception("Error inicializando NlpProcessor: ${e.message}"))
         }
     }
 
@@ -92,8 +105,8 @@ class NlpProcessor(private val context: Context) {
             // 3. Crear buffer de entrada para TFLite
             val inputBuffer = prepareInputBuffer(inputIds)
 
-            // 4. Buffer de salida — probabilidades por clase
-            val outputBuffer = Array(1) { FloatArray(OUTPUT_CLASSES) }
+            // 4. Buffer de salida — tamaño dinámico desde labels.txt
+            val outputBuffer = Array(1) { FloatArray(outputLabels.size) }
 
             // 5. Inferencia
             interpreter!!.run(inputBuffer, outputBuffer)
@@ -102,6 +115,10 @@ class NlpProcessor(private val context: Context) {
             buildNlpResult(outputBuffer[0], tokens)
 
         } catch (e: Exception) {
+            Log.e(TAG, "Inference error: ${e.message}")
+            if (e.message?.contains("gather") == true) {
+                Log.e(TAG, "DEBUG: Gather OOB suspected. Check token IDs in log.")
+            }
             NlpResult.error(e.message ?: "Error en inferencia", tokens)
         }
     }
@@ -117,38 +134,41 @@ class NlpProcessor(private val context: Context) {
     }
 
     // ══════════════════════════════════════════════════
-    // TOKENIZADOR SIMPLE
-    // Convierte texto a IDs numéricos por carácter/palabra
-    // IMPORTANTE: este tokenizador debe coincidir con el
-    // que usó el equipo NLP al entrenar el modelo.
-    // Si usaron BPE, SentencePiece o WordPiece, hay que
-    // reemplazar esto con el vocab correspondiente.
+    // TOKENIZADOR — usa vocab.txt del modelo
+    // Línea N en vocab.txt = ID N (0-indexado)
+    // Índice 0 = padding, índice 1 = [UNK]
     // ══════════════════════════════════════════════════
-    private val vocabCache = mutableMapOf<String, Int>()
+    private val unkId = 1
 
     private fun tokenize(text: String): IntArray {
         val words = text.lowercase()
             .split(Regex("\\s+"))
             .filter { it.isNotBlank() }
 
-        val ids = IntArray(MAX_TOKENS) { 0 }
-        val unkId = 1 // Temporal hasta tener el vocab real
+        val ids = IntArray(MAX_TOKENS) { 0 } // 0 = padding
 
-        var outOfRangeCount = 0
+        var unkCount = 0
+        var maxIdFound = 0
         words.take(MAX_TOKENS).forEachIndexed { index, word ->
-            val rawId = vocabCache.getOrPut(word) {
-                (word.hashCode().and(0x7FFFFFFF) % (VOCAB_SIZE - 1)) + 1
-            }
-            if (rawId !in 0 until VOCAB_SIZE) {
-                outOfRangeCount++
+            val id = vocab.getOrDefault(word, -1)
+            if (id == -1) {
                 ids[index] = unkId
+                unkCount++
             } else {
-                ids[index] = rawId
+                ids[index] = id
+                if (id > maxIdFound) maxIdFound = id
             }
         }
+
+        Log.d(TAG, "tokenize: words=${words.size}, unk=$unkCount, maxId=$maxIdFound")
         
-        if (outOfRangeCount > 0) {
-            Log.d(TAG, "out_of_range count = $outOfRangeCount")
+        // Log individual tokens if we see high IDs
+        if (maxIdFound > 100) {
+            val highIds = words.take(MAX_TOKENS).mapNotNull { word ->
+                val id = vocab[word]
+                if (id != null && id > 100) "$word($id)" else null
+            }
+            Log.d(TAG, "High IDs found: $highIds")
         }
 
         return ids
@@ -176,40 +196,66 @@ class NlpProcessor(private val context: Context) {
         probabilities: FloatArray,
         tokens: OcrTokens
     ): NlpResult {
-        // Índice y score de la clase con mayor probabilidad
+        // índice 0=safe, 1=reclutamiento
         val topIndex = probabilities.indices.maxByOrNull { probabilities[it] } ?: 0
-        val topLabel = OUTPUT_LABELS[topIndex]
+        val topLabel = outputLabels.getOrElse(topIndex) { "unknown" }
         val topScore = probabilities[topIndex]
 
-        // Mapa completo de probabilidades por label
-        val scoreMap = OUTPUT_LABELS
+        val scoreMap = outputLabels
             .zip(probabilities.toList())
             .toMap()
 
-        // Alert level basado en label + score
         val alertLevel = when {
-            topLabel == "CRITICAL"                        -> AlertLevel.CRITICAL
-            topLabel == "RECRUITMENT" && topScore > 0.75f -> AlertLevel.HIGH
-            topLabel == "RECRUITMENT"                     -> AlertLevel.MEDIUM
-            topLabel == "COERCION"   && topScore > 0.75f -> AlertLevel.HIGH
-            topLabel == "COERCION"                        -> AlertLevel.MEDIUM
-            topLabel == "PROFILING"  && topScore > 0.80f -> AlertLevel.MEDIUM
-            topLabel == "PROFILING"                       -> AlertLevel.LOW
-            else                                          -> AlertLevel.NONE
+            topLabel == "reclutamiento" && topScore > 0.75f -> AlertLevel.HIGH
+            topLabel == "reclutamiento"                     -> AlertLevel.MEDIUM
+            else                                            -> AlertLevel.NONE
         }
 
+        Log.d(TAG, "NLP result: label=$topLabel score=$topScore alert=$alertLevel")
+
         return NlpResult(
-            label        = topLabel,
-            riskScore    = topScore,
-            alertLevel   = alertLevel,
-            allScores    = scoreMap,
-            hasRisk      = alertLevel != AlertLevel.NONE,
-            packageName  = tokens.packageName,
+            label         = topLabel,
+            riskScore     = topScore,
+            alertLevel    = alertLevel,
+            allScores     = scoreMap,
+            hasRisk       = alertLevel != AlertLevel.NONE,
+            packageName   = tokens.packageName,
             screenContext = tokens.screenContext,
-            ocrSource    = tokens.source,
-            emojis       = tokens.emojis,
-            timestamp    = tokens.timestamp
+            ocrSource     = tokens.source,
+            emojis        = tokens.emojis,
+            timestamp     = tokens.timestamp
         )
+    }
+
+    // ══════════════════════════════════════════════════
+    // CARGAR VOCAB DESDE ASSETS
+    // Cada línea N = ID N (0-indexado)
+    // Línea 0 = string vacío (padding), Línea 1 = [UNK]
+    // ══════════════════════════════════════════════════
+    private fun loadVocab(): Map<String, Int> {
+        val map = mutableMapOf<String, Int>()
+        context.assets.open(VOCAB_PATH).bufferedReader().useLines { lines ->
+            lines.forEachIndexed { index, token ->
+                val trimmed = token.trim()
+                if (trimmed.isNotEmpty()) {
+                    map[trimmed] = index
+                }
+            }
+        }
+        return map
+    }
+
+    // ══════════════════════════════════════════════════
+    // CARGAR LABELS DESDE ASSETS
+    // Cada línea = un label (mismo orden que salida del modelo)
+    // ══════════════════════════════════════════════════
+    private fun loadLabels(): Array<String> {
+        return context.assets.open(LABELS_PATH)
+            .bufferedReader()
+            .readLines()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toTypedArray()
     }
 
     // ══════════════════════════════════════════════════
