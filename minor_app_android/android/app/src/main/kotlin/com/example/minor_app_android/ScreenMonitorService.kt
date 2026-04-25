@@ -23,67 +23,76 @@ import java.util.concurrent.Executors
 class ScreenMonitorService : Service() {
 
     companion object {
-        // Actions que recibe este servicio
         const val ACTION_START                   = "com.minorapp.START"
         const val ACTION_STOP                    = "com.minorapp.STOP"
         const val ACTION_ACCESSIBILITY_CONNECTED = "com.minorapp.ACCESSIBILITY_CONNECTED"
         const val ACTION_OCR_RESULT              = "com.minorapp.OCR_RESULT"
 
-        // Notification
-        private const val CHANNEL_ID   = "minor_app_monitor"
-        private const val CHANNEL_NAME = "Monitor de seguridad"
-        private const val NOTIF_ID     = 1001
-
-        // MethodChannel — mismo ID que en AppAccessibilityService
+        private const val CHANNEL_ID     = "minor_app_monitor"
+        private const val CHANNEL_NAME   = "Monitor de seguridad"
+        private const val NOTIF_ID       = 1001
         private const val CHANNEL_FLUTTER = "com.minorapp/monitor"
 
-        // Estado global accesible para otros componentes
         var isRunning = false
             private set
     }
 
     // ══════════════════════════════════════════════════
-    // DEPENDENCIAS INTERNAS
+    // DEPENDENCIAS
     // ══════════════════════════════════════════════════
-    private val executor        = Executors.newSingleThreadExecutor()
-    private val mainHandler     = Handler(Looper.getMainLooper())
-    private var wakeLock: PowerManager.WakeLock? = null
-    private var methodChannel: MethodChannel? = null
-    private var flutterEngine: FlutterEngine? = null
+    private val executor    = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
 
-    // Cola de resultados pendientes de enviar al backend
-    // Cuando no hay red, se acumulan aquí y se drenan cuando vuelve
+    private var wakeLock:      PowerManager.WakeLock? = null
+    private var methodChannel: MethodChannel?         = null
+    private var flutterEngine: FlutterEngine?         = null
+
+    // NLP — inicializado en onCreate
+    private lateinit var nlpProcessor: NlpProcessor
+
+    // Cola de tokens pendientes — máx 50 cuando no hay red
     private val pendingResults = ArrayDeque<OcrTokens>()
     private val MAX_PENDING    = 50
 
-    // Estado del sistema
     private var accessibilityConnected = false
     private var sessionStartTime       = 0L
 
     // ══════════════════════════════════════════════════
-    // CICLO DE VIDA DEL SERVICE
+    // CICLO DE VIDA
     // ══════════════════════════════════════════════════
     override fun onCreate() {
         super.onCreate()
         sessionStartTime = System.currentTimeMillis()
+
         setupNotificationChannel()
         setupFlutterEngine()
         acquireWakeLock()
+
+        // Inicializar NLP — intentar GPU, fallback a CPU automático
+        nlpProcessor = NlpProcessor(applicationContext)
+        nlpProcessor.initialize()
+            .onSuccess {
+                sendToFlutter("nlp_ready", mapOf(
+                    "timestamp" to System.currentTimeMillis()
+                ))
+            }
+            .onFailure { e ->
+                sendToFlutter("nlp_init_error", mapOf(
+                    "error" to (e.message ?: "Error desconocido")
+                ))
+            }
+
         isRunning = true
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-
             ACTION_START -> {
                 startForeground(NOTIF_ID, buildNotification("Protección activa"))
             }
-
             ACTION_STOP -> {
                 stopSelf()
             }
-
-            // El AccessibilityService notifica que está listo
             ACTION_ACCESSIBILITY_CONNECTED -> {
                 accessibilityConnected = true
                 updateNotification("Monitoreando conversaciones")
@@ -91,17 +100,10 @@ class ScreenMonitorService : Service() {
                     "timestamp" to System.currentTimeMillis()
                 ))
             }
-
-            // Llega un OcrTokens procesado desde el AccessibilityService
-            // En este punto el NLP ya debería recibirlo — por ahora lo encolamos
             ACTION_OCR_RESULT -> {
-                intent.extras?.let { extras ->
-                    handleOcrResult(extras)
-                }
+                intent.extras?.let { handleOcrResult(it) }
             }
         }
-
-        // START_STICKY — el SO reinicia el servicio si lo mata
         return START_STICKY
     }
 
@@ -109,39 +111,40 @@ class ScreenMonitorService : Service() {
 
     override fun onDestroy() {
         isRunning = false
+
+        // Liberar recursos en orden
+        nlpProcessor.close()
+        OcrProcessor.close()
         releaseWakeLock()
         flutterEngine?.destroy()
         executor.shutdown()
 
-        // Intentar reiniciarse automáticamente
-        val restartIntent = Intent(this, BootReceiver::class.java).apply {
+        // Pedir reinicio al BootReceiver
+        sendBroadcast(Intent(this, BootReceiver::class.java).apply {
             action = BootReceiver.ACTION_RESTART_SERVICE
-        }
-        sendBroadcast(restartIntent)
+        })
 
         super.onDestroy()
     }
 
     // ══════════════════════════════════════════════════
-    // MANEJO DE RESULTADOS OCR
-    // Recibe los extras del Intent con el OcrTokens,
-    // los reconstruye y los enruta al NLP cuando esté listo.
-    // Por ahora los encola y notifica a Flutter.
+    // PIPELINE OCR → NLP
     // ══════════════════════════════════════════════════
     private fun handleOcrResult(extras: android.os.Bundle) {
         executor.execute {
+            // Reconstruir OcrTokens desde el Intent
             val tokens = OcrTokens(
                 cleanText     = extras.getString("clean_text", ""),
                 emojis        = extras.getStringArrayList("emojis")?.toList() ?: emptyList(),
+                source        = OcrSource.valueOf(
+                    extras.getString("ocr_source", "ACCESSIBILITY")
+                ),
                 packageName   = extras.getString("package_name", ""),
                 screenContext = AppAccessibilityService.ScreenContext.valueOf(
                     extras.getString("screen_context", "UNKNOWN")
                 ),
                 timestamp     = extras.getLong("timestamp", System.currentTimeMillis())
             )
-
-            // Encolar para el NLP
-            enqueueForNlp(tokens)
 
             // Notificar a Flutter que hay actividad (sin datos sensibles)
             mainHandler.post {
@@ -152,51 +155,74 @@ class ScreenMonitorService : Service() {
                     "timestamp"      to tokens.timestamp
                 ))
             }
+
+            // Pasar al NLP directamente
+            processWithNlp(tokens)
         }
     }
 
+    private fun processWithNlp(tokens: OcrTokens) {
+        // Si el texto está vacío y no hay emojis, no vale la pena analizar
+        if (tokens.cleanText.isBlank() && tokens.emojis.isEmpty()) return
+
+        val result = nlpProcessor.analyze(tokens)
+
+        when {
+            result.error != null -> {
+                // Error en inferencia — encolar para reintentar
+                enqueuePending(tokens)
+            }
+
+            result.hasRisk -> {
+                handleNlpResult(result)
+            }
+
+            // Sin riesgo — no hacer nada, no saturar Flutter ni DB
+        }
+    }
+
+    private fun handleNlpResult(result: NlpResult) {
+        // Actualizar notificación según nivel
+        when (result.alertLevel) {
+            AlertLevel.CRITICAL -> updateNotification("Alerta crítica detectada")
+            AlertLevel.HIGH     -> updateNotification("Actividad sospechosa detectada")
+            else                -> { /* mantener notificación actual */ }
+        }
+
+        // Enviar a Flutter para mostrar en UI
+        mainHandler.post {
+            sendToFlutter("nlp_result", result.toMap())
+        }
+
+        // TODO: persistir en Room
+        // TODO: si alertLevel >= HIGH, enviar al backend
+    }
+
     // ══════════════════════════════════════════════════
-    // COLA PARA EL NLP
-    // Cuando el modelo NLP esté integrado, aquí se llama.
-    // Por ahora solo mantiene la cola con un límite.
+    // COLA DE PENDIENTES
+    // Para cuando el NLP falla o no hay red
     // ══════════════════════════════════════════════════
-    private fun enqueueForNlp(tokens: OcrTokens) {
+    private fun enqueuePending(tokens: OcrTokens) {
         if (pendingResults.size >= MAX_PENDING) {
-            pendingResults.removeFirst() // Descartar el más antiguo
+            pendingResults.removeFirst()
         }
         pendingResults.addLast(tokens)
+    }
 
-        // TODO: cuando el NLP esté listo, llamar aquí:
-        // NlpProcessor.analyze(tokens) { result -> handleNlpResult(result) }
+    // Drenar la cola — llamar cuando el NLP se recupere o vuelva la red
+    fun drainPendingQueue() {
+        executor.execute {
+            while (pendingResults.isNotEmpty()) {
+                val tokens = pendingResults.removeFirst()
+                processWithNlp(tokens)
+            }
+        }
     }
 
     // ══════════════════════════════════════════════════
-    // PLACEHOLDER — recibe resultado del NLP
-    // Se implementa cuando el modelo esté integrado
-    // ══════════════════════════════════════════════════
-    fun handleNlpResult(result: Map<String, Any?>) {
-        val alertLevel = result["alert_level"] as? String ?: return
-
-        // Actualizar notificación si hay riesgo alto
-        if (alertLevel == "HIGH" || alertLevel == "CRITICAL") {
-            updateNotification("⚠ Actividad sospechosa detectada")
-        }
-
-        // Notificar a Flutter con el resultado completo
-        mainHandler.post {
-            sendToFlutter("nlp_result", result)
-        }
-
-        // TODO: persistir en Room y enviar al backend según alertLevel
-    }
-
-    // ══════════════════════════════════════════════════
-    // FLUTTER ENGINE
-    // Crea un engine headless cacheado para que el
-    // MethodChannel funcione aunque Flutter no esté visible
+    // FLUTTER ENGINE + METHOD CHANNEL
     // ══════════════════════════════════════════════════
     private fun setupFlutterEngine() {
-        // Reutilizar engine si ya existe en cache
         val cached = FlutterEngineCache.getInstance().get("main_engine")
         if (cached != null) {
             flutterEngine = cached
@@ -204,7 +230,6 @@ class ScreenMonitorService : Service() {
             return
         }
 
-        // Crear engine headless nuevo
         val engine = FlutterEngine(this)
         engine.dartExecutor.executeDartEntrypoint(
             DartExecutor.DartEntrypoint.createDefault()
@@ -216,30 +241,22 @@ class ScreenMonitorService : Service() {
 
     private fun setupMethodChannel(engine: FlutterEngine) {
         methodChannel = MethodChannel(engine.dartExecutor.binaryMessenger, CHANNEL_FLUTTER)
-
-        // Escuchar llamadas desde Flutter → Kotlin
         methodChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
-                "startMonitoring" -> {
-                    result.success(mapOf(
-                        "running"                 to isRunning,
-                        "accessibility_connected" to accessibilityConnected,
-                        "session_start"           to sessionStartTime
-                    ))
-                }
-                "stopMonitoring" -> {
-                    stopSelf()
-                    result.success(null)
-                }
-                "getStatus" -> {
-                    result.success(mapOf(
-                        "running"                 to isRunning,
-                        "accessibility_connected" to accessibilityConnected,
-                        "pending_results"         to pendingResults.size,
-                        "session_duration_ms"     to (System.currentTimeMillis() - sessionStartTime)
-                    ))
-                }
-                else -> result.notImplemented()
+                "startMonitoring" -> result.success(mapOf(
+                    "running"                 to isRunning,
+                    "accessibility_connected" to accessibilityConnected,
+                    "session_start"           to sessionStartTime
+                ))
+                "stopMonitoring"  -> { stopSelf(); result.success(null) }
+                "getStatus"       -> result.success(mapOf(
+                    "running"                 to isRunning,
+                    "accessibility_connected" to accessibilityConnected,
+                    "pending_results"         to pendingResults.size,
+                    "session_duration_ms"     to (System.currentTimeMillis() - sessionStartTime)
+                ))
+                "drainQueue"      -> { drainPendingQueue(); result.success(null) }
+                else              -> result.notImplemented()
             }
         }
     }
@@ -249,41 +266,38 @@ class ScreenMonitorService : Service() {
     }
 
     // ══════════════════════════════════════════════════
-    // NOTIFICACIÓN PERSISTENTE
-    // Android requiere que los ForegroundServices
-    // muestren una notificación visible al usuario
+    // NOTIFICACIÓN
     // ══════════════════════════════════════════════════
     private fun setupNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_LOW  // Sin sonido ni vibración
+                NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description       = "Servicio de monitoreo de seguridad para menores"
+                description          = "Servicio de monitoreo de seguridad para menores"
                 setShowBadge(false)
-                lockscreenVisibility = Notification.VISIBILITY_SECRET // No visible en lockscreen
+                lockscreenVisibility = Notification.VISIBILITY_SECRET
             }
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+            getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(channel)
         }
     }
 
     private fun buildNotification(status: String): Notification {
-        val openAppIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
         val pendingIntent = PendingIntent.getActivity(
-            this, 0, openAppIntent,
+            this, 0,
+            Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+            },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Protección activa")
             .setContentText(status)
             .setSmallIcon(android.R.drawable.ic_lock_silent_mode_off)
             .setContentIntent(pendingIntent)
-            .setOngoing(true)           // No se puede deslizar para cerrar
+            .setOngoing(true)
             .setShowWhen(false)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setVisibility(NotificationCompat.VISIBILITY_SECRET)
@@ -291,28 +305,21 @@ class ScreenMonitorService : Service() {
     }
 
     private fun updateNotification(status: String) {
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIF_ID, buildNotification(status))
+        getSystemService(NotificationManager::class.java)
+            .notify(NOTIF_ID, buildNotification(status))
     }
 
     // ══════════════════════════════════════════════════
     // WAKE LOCK
-    // Evita que el CPU duerma durante el procesamiento
     // ══════════════════════════════════════════════════
     private fun acquireWakeLock() {
-        val powerManager = getSystemService(POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK,
-            "minorapp::MonitorWakeLock"
-        ).apply {
-            acquire(10 * 60 * 1000L) // Máximo 10 minutos, se renueva solo
-        }
+        wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "minorapp::MonitorWakeLock")
+            .apply { acquire(10 * 60 * 1000L) }
     }
 
     private fun releaseWakeLock() {
-        wakeLock?.let {
-            if (it.isHeld) it.release()
-        }
+        wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
     }
 }
