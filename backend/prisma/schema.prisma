@@ -1,0 +1,53 @@
+// -----------------------------------------------------------
+// 1. CONFIGURACIÓN DEL SISTEMA
+// -----------------------------------------------------------
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------
+// 2. NÚCLEO DE IDENTIDAD (Jerarquía Alta)
+// -----------------------------------------------------------
+model Usuario {
+  id_usuario String     @id @default(uuid())
+  ubicacion  String?
+  eventos    EventoAi[]
+}
+
+// -----------------------------------------------------------
+// 3. EVENTOS Y ACTIVIDAD (Capa de Transacción)
+// -----------------------------------------------------------
+model EventoAi {
+  id_evento_ai       String   @id @default(uuid())
+  plataforma         String
+  tipo_reclutamiento String
+  rol_usuario        String
+  timestamp          DateTime @default(now())
+  ubicacion          String?
+  
+  // Relación con el Core de Usuario
+  id_usuario         String
+  usuario            Usuario  @relation(fields: [id_usuario], references: [id_usuario])
+
+  // Extensiones de Datos
+  evento_confianza   EventoConfianza?
+  demanda_confianza  DemandaConfianza?
+}
+
+// -----------------------------------------------------------
+// 4. CAPAS DE SEGURIDAD Y CONFIANZA (Especializaciones)
+// -----------------------------------------------------------
+model EventoConfianza {
+  id_evento_ai String   @id
+  evento       EventoAi @relation(fields: [id_evento_ai], references: [id_evento_ai])
+}
+
+model DemandaConfianza {
+  id_evento_ai String   @id
+  evento       EventoAi @relation(fields: [id_evento_ai], references: [id_evento_ai])
+}
