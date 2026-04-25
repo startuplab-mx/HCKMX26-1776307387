@@ -9,18 +9,17 @@ import org.tensorflow.lite.gpu.GpuDelegate
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.nio.MappingMode
 import java.nio.channels.FileChannel
 
 class NlpProcessor(private val context: Context) {
 
     // ══════════════════════════════════════════════════
     // CONFIGURACIÓN DEL MODELO
-    // Ajustar según las specs del recruitment_detector.tflite
+    // Ajustar según las specs del modelo .tflite
     // que les pasaron — preguntarle al equipo NLP si no coincide
     // ══════════════════════════════════════════════════
     companion object {
-        private const val MODEL_PATH       = "models/recruitment_detector.tflite"
+        private const val MODEL_PATH       = "models/nlp_model.tflite"
         private const val MAX_TOKENS       = 128        // Longitud máxima de secuencia
         private const val VOCAB_SIZE       = 10000      // Ajustar al vocab del modelo
         private const val NUM_THREADS      = 2          // Threads de CPU para inferencia
@@ -69,7 +68,7 @@ class NlpProcessor(private val context: Context) {
             Result.success(Unit)
 
         } catch (e: Exception) {
-            Result.failure(Exception("Error cargando recruitment_detector.tflite: ${e.message}"))
+            Result.failure(Exception("Error cargando $MODEL_PATH: ${e.message}"))
         }
     }
 
@@ -214,7 +213,7 @@ class NlpProcessor(private val context: Context) {
         val inputStream = FileInputStream(afd.fileDescriptor)
         val channel: FileChannel = inputStream.channel
         return channel.map(
-            MappingMode.READ_ONLY,
+            FileChannel.MapMode.READ_ONLY,
             afd.startOffset,
             afd.declaredLength
         )
@@ -290,4 +289,12 @@ data class NlpResult(
         "timestamp"      to timestamp,
         "error"          to error
     )
+}
+
+enum class AlertLevel {
+    NONE,
+    LOW,
+    MEDIUM,
+    HIGH,
+    CRITICAL
 }

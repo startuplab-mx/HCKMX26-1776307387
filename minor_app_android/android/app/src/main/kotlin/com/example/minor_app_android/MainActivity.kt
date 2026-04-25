@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterEngineCache
@@ -16,6 +17,7 @@ class MainActivity : FlutterActivity() {
 
     private val CHANNEL_MONITOR = "com.minorapp/monitor"
     private val CHANNEL_OCR     = "com.minorapp/ocr"
+    private val TAG             = "MinorMainActivity"
 
     // ══════════════════════════════════════════════════
     // FLUTTER ENGINE — cachear para que el
@@ -33,6 +35,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Log.d(TAG, "MainActivity created")
 
         // Arrancar el ForegroundService al abrir la app
         startMonitorService()
@@ -53,6 +56,7 @@ class MainActivity : FlutterActivity() {
 
                     // Flutter pregunta el estado actual del sistema
                     "getStatus" -> {
+                        Log.d(TAG, "Flutter requested monitor status")
                         result.success(mapOf(
                             "service_running"         to ScreenMonitorService.isRunning,
                             "accessibility_enabled"   to isAccessibilityEnabled(),
@@ -63,6 +67,7 @@ class MainActivity : FlutterActivity() {
                     // Flutter pide abrir ajustes de accesibilidad
                     // El usuario activa el servicio manualmente ahí
                     "openAccessibilitySettings" -> {
+                        Log.d(TAG, "Opening accessibility settings")
                         val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
                         startActivity(intent)
                         result.success(null)
@@ -85,6 +90,7 @@ class MainActivity : FlutterActivity() {
 
                     // Flutter arranca el servicio manualmente
                     "startMonitoring" -> {
+                        Log.d(TAG, "Flutter requested startMonitoring")
                         startMonitorService()
                         result.success(null)
                     }
@@ -115,6 +121,7 @@ class MainActivity : FlutterActivity() {
     // HELPERS
     // ══════════════════════════════════════════════════
     private fun startMonitorService() {
+        Log.d(TAG, "Starting ScreenMonitorService")
         val intent = Intent(this, ScreenMonitorService::class.java).apply {
             action = ScreenMonitorService.ACTION_START
         }

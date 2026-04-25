@@ -13,6 +13,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterEngineCache
@@ -23,6 +24,8 @@ import java.util.concurrent.Executors
 class ScreenMonitorService : Service() {
 
     companion object {
+        private const val TAG = "MinorMonitor"
+
         const val ACTION_START                   = "com.minorapp.START"
         const val ACTION_STOP                    = "com.minorapp.STOP"
         const val ACTION_ACCESSIBILITY_CONNECTED = "com.minorapp.ACCESSIBILITY_CONNECTED"
@@ -62,6 +65,7 @@ class ScreenMonitorService : Service() {
     // ══════════════════════════════════════════════════
     override fun onCreate() {
         super.onCreate()
+        Log.d(TAG, "ScreenMonitorService created")
         sessionStartTime = System.currentTimeMillis()
 
         setupNotificationChannel()
@@ -72,11 +76,13 @@ class ScreenMonitorService : Service() {
         nlpProcessor = NlpProcessor(applicationContext)
         nlpProcessor.initialize()
             .onSuccess {
+                Log.d(TAG, "NLP processor ready")
                 sendToFlutter("nlp_ready", mapOf(
                     "timestamp" to System.currentTimeMillis()
                 ))
             }
             .onFailure { e ->
+                Log.e(TAG, "NLP initialization failed", e)
                 sendToFlutter("nlp_init_error", mapOf(
                     "error" to (e.message ?: "Error desconocido")
                 ))
@@ -86,6 +92,7 @@ class ScreenMonitorService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.d(TAG, "onStartCommand action=${intent?.action}")
         when (intent?.action) {
             ACTION_START -> {
                 startForeground(NOTIF_ID, buildNotification("Protección activa"))
@@ -110,6 +117,7 @@ class ScreenMonitorService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        Log.d(TAG, "ScreenMonitorService destroyed")
         isRunning = false
 
         // Liberar recursos en orden
@@ -145,6 +153,10 @@ class ScreenMonitorService : Service() {
                 ),
                 timestamp     = extras.getLong("timestamp", System.currentTimeMillis())
             )
+            Log.d(
+                TAG,
+                "Received OCR tokens package=${tokens.packageName}, context=${tokens.screenContext}, source=${tokens.source}, textLength=${tokens.cleanText.length}, emojis=${tokens.emojis.size}"
+            )
 
             // Notificar a Flutter que hay actividad (sin datos sensibles)
             mainHandler.post {
@@ -166,6 +178,10 @@ class ScreenMonitorService : Service() {
         if (tokens.cleanText.isBlank() && tokens.emojis.isEmpty()) return
 
         val result = nlpProcessor.analyze(tokens)
+        Log.d(
+            TAG,
+            "NLP analyzed label=${result.label}, risk=${result.riskScore}, alert=${result.alertLevel}, hasRisk=${result.hasRisk}, error=${result.error}"
+        )
 
         when {
             result.error != null -> {
@@ -182,6 +198,7 @@ class ScreenMonitorService : Service() {
     }
 
     private fun handleNlpResult(result: NlpResult) {
+        Log.d(TAG, "Handling NLP risk result ${result.toMap()}")
         // Actualizar notificación según nivel
         when (result.alertLevel) {
             AlertLevel.CRITICAL -> updateNotification("Alerta crítica detectada")
@@ -262,6 +279,7 @@ class ScreenMonitorService : Service() {
     }
 
     private fun sendToFlutter(method: String, data: Map<String, Any?>) {
+        Log.d(TAG, "Sending Flutter event $method")
         methodChannel?.invokeMethod(method, data)
     }
 
