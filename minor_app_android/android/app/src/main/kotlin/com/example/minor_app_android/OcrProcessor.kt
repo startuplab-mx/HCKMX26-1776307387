@@ -1,13 +1,11 @@
-// android/app/src/main/kotlin/com/minorapp/OcrProcessor.kt
+// android/app/src/main/kotlin/com/example/minor_app_android/OcrProcessor.kt
 
-package com.minorapp
+package com.example.minor_app_android
 
 import android.graphics.Bitmap
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import com.minorapp.AppAccessibilityService.ExtractedContent
-import com.minorapp.AppAccessibilityService.ScreenContext
 import kotlinx.coroutines.tasks.await
 
 object OcrProcessor {
@@ -20,7 +18,7 @@ object OcrProcessor {
     // ENTRADA 1 — Texto del árbol de accesibilidad
     // Llamado desde AppAccessibilityService
     // ══════════════════════════════════════════════════
-    fun processFromAccessibility(content: ExtractedContent): OcrTokens {
+    fun processFromAccessibility(content: AppAccessibilityService.ExtractedContent): OcrTokens {
         return OcrTokens(
             cleanText     = cleanText(content.rawText),
             emojis        = content.emojis.distinct(),
@@ -39,7 +37,7 @@ object OcrProcessor {
     suspend fun processFromImage(
         bitmap: Bitmap,
         packageName: String,
-        screenContext: ScreenContext
+        screenContext: AppAccessibilityService.ScreenContext
     ): OcrTokens {
         val image = InputImage.fromBitmap(bitmap, 0)
 

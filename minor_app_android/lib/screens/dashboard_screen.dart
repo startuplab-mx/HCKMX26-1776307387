@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../widgets/dashboard_cards.dart';
 import '../services/ml_pipeline_service.dart';
 import '../services/ocr_service.dart';
@@ -15,6 +16,9 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  static const MethodChannel _ocrChannel = MethodChannel('com.minorapp/ocr');
+  static const MethodChannel _monitorChannel = MethodChannel('com.minorapp/monitor');
+
   late final MlPipelineService _pipeline;
   bool _pipelineReady = false;
   String _trustCode = '482-911';
@@ -24,7 +28,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    _setupNativeListeners();
     _initializePipeline();
+  }
+
+  void _setupNativeListeners() {
+    _ocrChannel.setMethodCallHandler((call) async {
+      debugPrint('[Native OCR] ${call.method}: ${call.arguments}');
+    });
+
+    _monitorChannel.setMethodCallHandler((call) async {
+      debugPrint('[Native Monitor] ${call.method}: ${call.arguments}');
+    });
   }
 
   Future<void> _initializePipeline() async {
@@ -82,6 +97,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
+    _ocrChannel.setMethodCallHandler(null);
+    _monitorChannel.setMethodCallHandler(null);
     _pipeline.dispose();
     super.dispose();
   }
@@ -280,27 +297,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
 
-          // Map placeholder
           Container(
             width: double.infinity,
             height: 160,
-            decoration: BoxDecoration(
-              color: const Color(0xFFE8F0E8),
-              image: const DecorationImage(
-                image: NetworkImage(
-                  'https://api.mapbox.com/styles/v1/mapbox/light-v10/static/-99.1332,19.4326,14,0/400x200?access_token=placeholder',
-                ),
-                fit: BoxFit.cover,
-              ),
-            ),
+            color: const Color(0xFFE8F0E8),
             child: Stack(
               alignment: Alignment.center,
               children: [
-                // Fallback if image doesn't load
-                Container(
-                  color: const Color(0xFFD4E6D4).withValues(alpha: 0.5),
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: _LocalMapPainter(),
+                  ),
                 ),
-                // Geofence circle
                 Container(
                   width: 100,
                   height: 100,
@@ -444,4 +452,68 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
   }
+}
+
+class _LocalMapPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final background = Paint()..color = const Color(0xFFE8F0E8);
+    canvas.drawRect(Offset.zero & size, background);
+
+    final roadPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.9)
+      ..strokeWidth = 10
+      ..strokeCap = StrokeCap.round;
+    final minorRoadPaint = Paint()
+      ..color = const Color(0xFFC9D8CA)
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
+    final parkPaint = Paint()..color = const Color(0xFFCFE6D0);
+
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(size.width * 0.2, size.height * 0.25),
+        width: size.width * 0.45,
+        height: size.height * 0.4,
+      ),
+      parkPaint,
+    );
+
+    for (var i = -1; i < 5; i++) {
+      final y = size.height * (0.18 + i * 0.18);
+      canvas.drawLine(
+        Offset(-20, y),
+        Offset(size.width + 20, y + size.height * 0.08),
+        minorRoadPaint,
+      );
+    }
+
+    for (var i = 0; i < 5; i++) {
+      final x = size.width * (0.1 + i * 0.22);
+      canvas.drawLine(
+        Offset(x, -20),
+        Offset(x + size.width * 0.1, size.height + 20),
+        minorRoadPaint,
+      );
+    }
+
+    final mainPath = Path()
+      ..moveTo(-10, size.height * 0.75)
+      ..quadraticBezierTo(
+        size.width * 0.35,
+        size.height * 0.55,
+        size.width * 0.55,
+        size.height * 0.68,
+      )
+      ..quadraticBezierTo(
+        size.width * 0.78,
+        size.height * 0.84,
+        size.width + 10,
+        size.height * 0.55,
+      );
+    canvas.drawPath(mainPath, roadPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

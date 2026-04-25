@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import io.flutter.embedding.engine.FlutterEngine
@@ -16,6 +17,9 @@ import io.flutter.plugin.common.MethodChannel
 import java.util.concurrent.Executors
 
 class AppAccessibilityService : AccessibilityService() {
+    companion object {
+        private const val TAG = "MinorAccessibility"
+    }
 
     // ══════════════════════════════════════════════════
     // APPS OBJETIVO — solo procesamos estas para no
@@ -61,6 +65,7 @@ class AppAccessibilityService : AccessibilityService() {
     // ══════════════════════════════════════════════════
     override fun onServiceConnected() {
         super.onServiceConnected()
+        Log.d(TAG, "Accessibility service connected")
 
         // Configurar el servicio programáticamente como respaldo al XML
         val info = AccessibilityServiceInfo().apply {
@@ -91,10 +96,12 @@ class AppAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         // El sistema interrumpió el servicio — log para diagnóstico
+        Log.w(TAG, "Accessibility service interrupted")
         sendToFlutter("accessibility_interrupted", mapOf("timestamp" to System.currentTimeMillis()))
     }
 
     override fun onDestroy() {
+        Log.d(TAG, "Accessibility service destroyed")
         executor.shutdown()
         super.onDestroy()
     }
@@ -109,6 +116,9 @@ class AppAccessibilityService : AccessibilityService() {
 
         // Ignorar apps que no son objetivo
         if (packageName !in targetPackages) {
+            if (packageName != currentPackage) {
+                Log.d(TAG, "Ignoring non-target package $packageName")
+            }
             currentPackage = packageName
             return
         }
@@ -132,6 +142,7 @@ class AppAccessibilityService : AccessibilityService() {
             val extractedContent = extractContent(rootNode, packageName)
 
             if (extractedContent.rawText.isBlank() && extractedContent.emojis.isEmpty()) {
+                Log.d(TAG, "Empty accessibility content from $packageName")
                 return
             }
 
@@ -139,13 +150,18 @@ class AppAccessibilityService : AccessibilityService() {
             val contentHash = extractedContent.rawText.hashCode().toString()
             val now = System.currentTimeMillis()
             if (contentHash == lastProcessedText && (now - lastProcessedTimestamp) < DEBOUNCE_MS) {
+                Log.d(TAG, "Debounced duplicate content from $packageName")
                 return
             }
             lastProcessedText = contentHash
             lastProcessedTimestamp = now
 
             // Enviar al OcrProcessor para mapeo de emojis y limpieza
-            val result = OcrProcessor.process(extractedContent)
+            val result = OcrProcessor.processFromAccessibility(extractedContent)
+            Log.d(
+                TAG,
+                "OCR accessibility result package=${result.packageName}, context=${result.screenContext}, textLength=${result.cleanText.length}, emojis=${result.emojis.size}"
+            )
 
             // Enviar a Flutter y a ScreenMonitorService
             mainHandler.post {
@@ -272,6 +288,7 @@ class AppAccessibilityService : AccessibilityService() {
     }
 
     private fun sendToFlutter(method: String, data: Map<String, Any?>) {
+        Log.d(TAG, "Sending Flutter event $method")
         methodChannel?.invokeMethod(method, data)
     }
 
