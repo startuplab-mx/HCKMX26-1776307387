@@ -52,6 +52,7 @@ class AppAccessibilityService : AccessibilityService() {
     private var lastProcessedText: String = ""
     private var lastProcessedTimestamp: Long = 0L
     private val DEBOUNCE_MS = 2000L // No procesar el mismo texto en 2s
+    private var lastScreenshotTimestamp: Long = 0L
 
     // App activa en primer plano
     private var currentPackage: String = ""
@@ -141,7 +142,7 @@ class AppAccessibilityService : AccessibilityService() {
             // Extraer todo el texto visible en la ventana actual
             val extractedContent = extractContent(rootNode, packageName)
 
-            if (extractedContent.rawText.isBlank() && extractedContent.emojis.isEmpty()) {
+            if (extractedContent.rawText.isBlank() && extractedContent.emojis.isEmpty() && !extractedContent.hasMediaNode) {
                 Log.d(TAG, "Empty accessibility content from $packageName")
                 return
             }
@@ -160,14 +161,37 @@ class AppAccessibilityService : AccessibilityService() {
             val result = OcrProcessor.processFromAccessibility(extractedContent)
             Log.d(
                 TAG,
-                "OCR accessibility result package=${result.packageName}, context=${result.screenContext}, textLength=${result.cleanText.length}, emojis=${result.emojis.size}"
+                "OCR result pkg=${result.packageName}, ctx=${result.screenContext}, TEXT=\"${result.cleanText}\""
             )
 
-            // Enviar a Flutter y a ScreenMonitorService
-            mainHandler.post {
-                sendToFlutter("ocr_result", result.toMap())
+            // Enviar a Flutter y a ScreenMonitorService (solo si hay texto nativo válido)
+            if (result.isValid) {
+                mainHandler.post {
+                    sendToFlutter("ocr_result", result.toMap())
+                }
+                forwardToMonitorService(result)
             }
-            forwardToMonitorService(result)
+
+            // Procesar imágenes o videos detectados con Screenshot y ML Kit
+            if (extractedContent.hasMediaNode) {
+                val nowTime = System.currentTimeMillis()
+                val cooldown = if (extractedContent.hasVideoNode) 5000L else 2000L
+                if (nowTime - lastScreenshotTimestamp > cooldown) {
+                    lastScreenshotTimestamp = nowTime
+                    ScreenshotOcrProcessor.captureAndProcess(
+                        this,
+                        executor,
+                        packageName,
+                        extractedContent.screenContext
+                    ) { screenshotResult ->
+                        Log.d(TAG, "Screenshot OCR result TEXT=\"${screenshotResult.cleanText}\"")
+                        mainHandler.post {
+                            sendToFlutter("ocr_result", screenshotResult.toMap())
+                        }
+                        forwardToMonitorService(screenshotResult)
+                    }
+                }
+            }
 
         } finally {
             rootNode.recycle()
@@ -186,16 +210,19 @@ class AppAccessibilityService : AccessibilityService() {
         val textBuilder = StringBuilder()
         val emojis = mutableListOf<String>()
         val nodeTexts = mutableListOf<String>()
+        val mediaFlags = BooleanArray(2) // [0] = hasMedia, [1] = hasVideo
 
-        traverseNodes(root, textBuilder, emojis, nodeTexts, depth = 0)
+        traverseNodes(root, textBuilder, emojis, nodeTexts, mediaFlags, depth = 0)
 
         return ExtractedContent(
-            rawText    = textBuilder.toString().trim(),
-            emojis     = emojis.distinct(),
-            nodeTexts  = nodeTexts,
-            packageName = packageName,
-            timestamp  = System.currentTimeMillis(),
-            screenContext = detectScreenContext(packageName, nodeTexts)
+            rawText       = textBuilder.toString().trim(),
+            emojis        = emojis.distinct(),
+            nodeTexts     = nodeTexts,
+            packageName   = packageName,
+            timestamp     = System.currentTimeMillis(),
+            screenContext = detectScreenContext(packageName, nodeTexts),
+            hasMediaNode  = mediaFlags[0],
+            hasVideoNode  = mediaFlags[1]
         )
     }
 
@@ -204,6 +231,7 @@ class AppAccessibilityService : AccessibilityService() {
         textBuilder: StringBuilder,
         emojis: MutableList<String>,
         nodeTexts: MutableList<String>,
+        mediaFlags: BooleanArray,
         depth: Int
     ) {
         if (node == null || depth > 20) return // Límite de profundidad para evitar loops
@@ -211,6 +239,19 @@ class AppAccessibilityService : AccessibilityService() {
         // Extraer texto del nodo
         val text = node.text?.toString()
         val contentDesc = node.contentDescription?.toString()
+        val className = node.className?.toString()?.lowercase() ?: ""
+        
+        val descLower = contentDesc?.lowercase() ?: ""
+        val textLower = text?.lowercase() ?: ""
+
+        // Detección de Media
+        if (className.contains("imageview") || descLower.contains("imagen") || descLower.contains("image") || textLower.contains("imagen") || textLower.contains("image")) {
+            mediaFlags[0] = true
+        }
+        if (className.contains("videoview") || className.contains("textureview") || descLower.contains("video") || textLower.contains("video")) {
+            mediaFlags[0] = true
+            mediaFlags[1] = true
+        }
 
         listOfNotNull(text, contentDesc).forEach { raw ->
             if (raw.isNotBlank()) {
@@ -226,7 +267,7 @@ class AppAccessibilityService : AccessibilityService() {
         // Recursión sobre nodos hijos
         for (i in 0 until node.childCount) {
             val child = node.getChild(i)
-            traverseNodes(child, textBuilder, emojis, nodeTexts, depth + 1)
+            traverseNodes(child, textBuilder, emojis, nodeTexts, mediaFlags, depth + 1)
             child?.recycle()
         }
     }
@@ -313,7 +354,9 @@ class AppAccessibilityService : AccessibilityService() {
         val nodeTexts: List<String>,
         val packageName: String,
         val timestamp: Long,
-        val screenContext: ScreenContext
+        val screenContext: ScreenContext,
+        val hasMediaNode: Boolean = false,
+        val hasVideoNode: Boolean = false
     )
 
     enum class ScreenContext {

@@ -4,8 +4,8 @@ package com.example.minor_app_android
 
 import android.content.Context
 import android.content.res.AssetFileDescriptor
+import android.util.Log
 import org.tensorflow.lite.Interpreter
-import org.tensorflow.lite.gpu.GpuDelegate
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -19,9 +19,10 @@ class NlpProcessor(private val context: Context) {
     // que les pasaron — preguntarle al equipo NLP si no coincide
     // ══════════════════════════════════════════════════
     companion object {
+        private const val TAG              = "MinorNlp"
         private const val MODEL_PATH       = "models/nlp_model.tflite"
-        private const val MAX_TOKENS       = 128        // Longitud máxima de secuencia
-        private const val VOCAB_SIZE       = 10000      // Ajustar al vocab del modelo
+        private const val MAX_TOKENS       = 100        // Longitud máxima de secuencia
+        private const val VOCAB_SIZE       = 1000       // Cambiado a 1000 para evitar index out of bounds
         private const val NUM_THREADS      = 2          // Threads de CPU para inferencia
         private const val OUTPUT_CLASSES   = 5          // Número de clases de salida
 
@@ -40,7 +41,6 @@ class NlpProcessor(private val context: Context) {
     // INTÉRPRETE TFLITE
     // ══════════════════════════════════════════════════
     private var interpreter: Interpreter? = null
-    private var gpuDelegate: GpuDelegate? = null
     private var isInitialized = false
 
     // ══════════════════════════════════════════════════
@@ -51,16 +51,9 @@ class NlpProcessor(private val context: Context) {
         return try {
             val modelBuffer = loadModelFromAssets()
 
-            // Intentar GPU Delegate primero, fallback a CPU
+            // Usar CPU (NUM_THREADS) — más estable para NLP y Emuladores
             val options = Interpreter.Options().apply {
-                try {
-                    gpuDelegate = GpuDelegate()
-                    addDelegate(gpuDelegate!!)
-                } catch (e: Exception) {
-                    // GPU no disponible en este device — usar CPU
-                    gpuDelegate = null
-                    numThreads = NUM_THREADS
-                }
+                numThreads = NUM_THREADS
             }
 
             interpreter = Interpreter(modelBuffer, options)
@@ -134,14 +127,24 @@ class NlpProcessor(private val context: Context) {
             .split(Regex("\\s+"))
             .filter { it.isNotBlank() }
 
-        val ids = IntArray(MAX_TOKENS) { 0 } // 0 = padding token
+        val ids = IntArray(MAX_TOKENS) { 0 }
+        val unkId = 1 // Temporal hasta tener el vocab real
 
+        var outOfRangeCount = 0
         words.take(MAX_TOKENS).forEachIndexed { index, word ->
-            ids[index] = vocabCache.getOrPut(word) {
-                // Hash simple del word como ID
-                // Reemplazar con lookup real al vocab del modelo
+            val rawId = vocabCache.getOrPut(word) {
                 (word.hashCode().and(0x7FFFFFFF) % (VOCAB_SIZE - 1)) + 1
             }
+            if (rawId !in 0 until VOCAB_SIZE) {
+                outOfRangeCount++
+                ids[index] = unkId
+            } else {
+                ids[index] = rawId
+            }
+        }
+        
+        if (outOfRangeCount > 0) {
+            Log.d(TAG, "out_of_range count = $outOfRangeCount")
         }
 
         return ids
@@ -224,9 +227,7 @@ class NlpProcessor(private val context: Context) {
     // ══════════════════════════════════════════════════
     fun close() {
         interpreter?.close()
-        gpuDelegate?.close()
         interpreter = null
-        gpuDelegate = null
         isInitialized = false
     }
 }

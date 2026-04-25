@@ -155,6 +155,7 @@ object OcrProcessor {
 enum class OcrSource {
     ACCESSIBILITY,  // Árbol de UI — texto nativo
     ML_KIT,         // Imagen procesada con ML Kit
+    SCREENSHOT,     // Captura de pantalla (OCR)
     MERGED          // Combinación de ambos
 }
 
