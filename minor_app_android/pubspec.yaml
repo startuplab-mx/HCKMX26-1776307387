@@ -34,6 +34,16 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
+  
+  # SQLite local — persistencia de eventos
+  sqflite: ^2.3.0
+  path: ^1.8.3
+
+  # Background service Flutter ↔ Kotlin
+  flutter_background_service: ^5.0.5
+
+  # Permisos en runtime
+  permission_handler: ^11.3.0
 
 dev_dependencies:
   flutter_test:

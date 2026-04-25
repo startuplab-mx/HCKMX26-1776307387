@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_description">
+        Monitorea texto y emojis en pantalla para detectar intentos de contacto
+        peligroso con menores. No almacena conversaciones completas.
+    </string>
+</resources>

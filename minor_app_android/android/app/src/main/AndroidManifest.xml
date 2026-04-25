@@ -1,8 +1,41 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- ══════════════════════════════════════════════════
+         PERMISOS
+         ══════════════════════════════════════════════════ -->
+
+    <!-- Red — para enviar eventos al backend cuando hay alerta -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Foreground Service — requerido para que el servicio no sea matado por el SO -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Android 14+: declarar el tipo específico del foreground service -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!-- MediaProjection — para captura de pantalla visual (Modelo 2) -->
+    <!-- No se declara aquí, se solicita en runtime con createScreenCaptureIntent() -->
+
+    <!-- Recibir eventos de boot para reiniciar el servicio si el dispositivo se reinicia -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Notificaciones — Android 13+ requiere permiso explícito -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Wake lock — para que el procesador no duerma durante el análisis -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Ubicación aproximada — para contexto geográfico (estado crítico activo) -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
     <application
         android:label="minor_app_android"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+
+        <!-- ══════════════════════════════════════════════════
+             MAIN ACTIVITY (Flutter — no modificar)
+             ══════════════════════════════════════════════════ -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -12,34 +45,82 @@
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
-            <!-- Specifies an Android theme to apply to this Activity as soon as
-                 the Android process has started. This theme is visible to the user
-                 while the Flutter UI initializes. After that, this theme continues
-                 to determine the Window background behind the Flutter UI. -->
             <meta-data
-              android:name="io.flutter.embedding.android.NormalTheme"
-              android:resource="@style/NormalTheme"
-              />
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme" />
             <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <!-- Don't delete the meta-data below.
-             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+
+        <!-- ══════════════════════════════════════════════════
+             ACCESSIBILITY SERVICE — Modelo 1 (OCR + Emoji)
+             Lee el árbol de UI de otras apps en tiempo real.
+             Sin esto no hay acceso a texto de WhatsApp, TikTok, etc.
+             El usuario lo activa una sola vez en Configuración > Accesibilidad.
+             ══════════════════════════════════════════════════ -->
+        <service
+            android:name=".AppAccessibilityService"
+            android:exported="true"
+            android:label="Monitor de seguridad"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <!-- Apunta al XML de configuración del servicio (lo creamos después) -->
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!-- ══════════════════════════════════════════════════
+             FOREGROUND SERVICE — Motor de análisis principal
+             Corre en background, muestra notificación persistente.
+             Aquí vive el loop de captura y los 3 modelos.
+             android:foregroundServiceType="specialUse" para Android 14+
+             (usar "mediaProjection" cuando conectes el Modelo 2)
+             ══════════════════════════════════════════════════ -->
+        <service
+            android:name=".ScreenMonitorService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="monitoreo de seguridad para menores" />
+        </service>
+
+        <!-- ══════════════════════════════════════════════════
+             BOOT RECEIVER — Reinicia el servicio tras reboot
+             Sin esto, el monitoreo se detiene si el dispositivo
+             se apaga o se reinicia.
+             ══════════════════════════════════════════════════ -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter android:priority="1000">
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Flutter embedding meta (no tocar) -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-    </application>
-    <!-- Required to query activities that can process text, see:
-         https://developer.android.com/training/package-visibility and
-         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
 
-         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    </application>
+
+    <!-- Flutter text processing (no tocar) -->
     <queries>
         <intent>
-            <action android:name="android.intent.action.PROCESS_TEXT"/>
-            <data android:mimeType="text/plain"/>
+            <action android:name="android.intent.action.PROCESS_TEXT" />
+            <data android:mimeType="text/plain" />
+        </intent>
+        <!-- Necesario para abrir configuración de accesibilidad desde la app -->
+        <intent>
+            <action android:name="android.settings.ACCESSIBILITY_SETTINGS" />
         </intent>
     </queries>
+
 </manifest>
