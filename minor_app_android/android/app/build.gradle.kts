@@ -31,6 +31,10 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    aaptOptions {
+        noCompress += "tflite"
+    }
 }
 
 flutter {
@@ -38,13 +42,20 @@ flutter {
 }
 
 dependencies {
-    // ML Kit Text Recognition — on-device, sin internet
+    // ML Kit Text Recognition — on-device, sin internet (Latin incluido por defecto)
     implementation("com.google.mlkit:text-recognition:16.0.0")
-    implementation("com.google.mlkit:text-recognition-latin:16.0.0")
 
     // Kotlin coroutines — para procesamiento async en los servicios
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
     // Core KTX — extensions de Kotlin para Android
     implementation("androidx.core:core-ktx:1.12.0")
+
+    // TFLite runtime
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
+    // GPU Delegate — inferencia en GPU, 3-5x más rápido que CPU
+    implementation("org.tensorflow:tensorflow-lite-gpu:2.14.0")
+    // Support library — utilidades para cargar modelos desde assets
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
 }
