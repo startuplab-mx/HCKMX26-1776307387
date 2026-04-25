@@ -1,0 +1,130 @@
+[
+  {
+    "text": "Se ve que le sabes bien al tiro en el juego, acá ocupamos gente con esa puntería.",
+    "label": "reclutamiento"
+  },
+  {
+    "text": "La gente de la 🍕 anda buscando morros cumplidos, se gana bien y hay respeto.",
+    "label": "reclutamiento"
+  },
+  {
+    "text": "¿Quieres ganar en un día lo que otros ganan en un mes? Ocupamos un puntero.",
+    "label": "reclutamiento"
+  },
+  {
+    "text": "Si sabes manejar así de rápido, te ponemos una troca de lujo y buena paga.",
+    "label": "reclutamiento"
+  },
+  {
+    "text": "Acá con nosotros no te va a faltar nada, pura protección y lealtad al jefe.",
+    "label": "reclutamiento"
+  },
+  {
+    "text": "Ocupamos un halcón para que vigile la entrada, solo es avisar por el radio.",
+    "label": "reclutamiento"
+  },
+  {
+    "text": "Deja la escuela, ahí no se hace dinero. Acá sales con todo pagado y equipo táctico.",
+    "label": "reclutamiento"
+  },
+  {
+    "text": "Tú tienes talento para el mando, te ves que no te rajas frente al peligro.",
+    "label": "reclutamiento"
+  },
+  {
+    "text": "Vente a jalar a Michoacán, acá la plebada te va a cuidar bien.",
+    "label": "reclutamiento"
+  },
+  {
+    "text": "No seas sapo y guarda el secreto, el que es leal llega lejos en este grupo.",
+    "label": "reclutamiento"
+  },
+  {
+    "text": "Buscamos fuerza laboral especializada, tú que le entiendes a los drones nos sirves.",
+    "label": "reclutamiento"
+  },
+  {
+    "text": "Si te interesa el movimiento, te mando la ubicación por otra app más segura.",
+    "label": "reclutamiento"
+  },
+  {
+    "text": "Acá no hay reglas, solo seguir órdenes y vas a ver cómo subes de nivel rápido.",
+    "label": "reclutamiento"
+  },
+  {
+    "text": "Me dijeron que eres el más bravo del barrio, ocupamos gente así para la plaza.",
+    "label": "reclutamiento"
+  },
+  {
+    "text": "Te regalamos el equipo y la moto, solo tienes que hacer unos mandados en la zona.",
+    "label": "reclutamiento"
+  },
+  {
+    "text": "La narcocultura no es como la pintan, acá somos familia y nos cuidamos.",
+    "label": "reclutamiento"
+  },
+  {
+    "text": "Si te preguntan los guachos, tú no sabes nada, eres solo un civil más.",
+    "label": "reclutamiento"
+  },
+  {
+    "text": "Hay una vacante para halconeo en el crucero, está tranquilo y sale buena lana.",
+    "label": "reclutamiento"
+  },
+  {
+    "text": "Oye, contigo sí se puede hablar chido, no como con los demás",
+    "label": "grooming"
+  },
+  {
+    "text": "me caes bien cañón, eres de los pocos que sí contestan",
+    "label": "grooming"
+  },
+  {
+    "text": "no le digas a nadie de este chat, mejor aquí entre tú y yo",
+    "label": "grooming"
+  },
+  {
+    "text": "contigo sí siento confianza, neta no le cuentes a tus compas",
+    "label": "grooming"
+  },
+  {
+    "text": "te mando un link, ábrelo y pon tu usuario para revisar",
+    "label": "phishing_menor"
+  },
+  {
+    "text": "necesito que me confirmes tu cuenta, es rapidísimo",
+    "label": "phishing_menor"
+  },
+  {
+    "text": "si no verificas ahorita, se puede bloquear tu perfil",
+    "label": "phishing_menor"
+  },
+  {
+    "text": "nadie te pidió opinión, ya cállate",
+    "label": "ciberacoso"
+  },
+  {
+    "text": "qué oso cómo hablas, mejor ni escribas",
+    "label": "ciberacoso"
+  },
+  {
+    "text": "subimos tu captura para que veas lo cringe que eres",
+    "label": "ciberacoso"
+  },
+  {
+    "text": "ya hiciste la tarea de mate o andas igual que yo",
+    "label": "safe"
+  },
+  {
+    "text": "carnal, hoy hay partida en la noche o qué",
+    "label": "safe"
+  },
+  {
+    "text": "qué profe te tocó en historia",
+    "label": "safe"
+  },
+  {
+    "text": "vamos por unas papitas al salir",
+    "label": "safe"
+  }
+]
