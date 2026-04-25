@@ -22,7 +22,11 @@ class NlpProcessor(private val context: Context) {
         private const val TAG              = "MinorNlp"
         private const val MODEL_PATH       = "models/nlp_model.tflite"
         private const val MAX_TOKENS       = 100        // Longitud máxima de secuencia
-        private const val VOCAB_SIZE       = 1000       // Cambiado a 1000 para evitar index out of bounds
+        // VOCAB_SIZE debe coincidir con el embedding lookup del modelo .tflite.
+        // Error "gather index out of bounds" = este valor es mayor que el vocab real.
+        // Instrucciones: correr inspect_model.py en el modelo para obtener el valor correcto.
+        // Mientras tanto, usamos hash % VOCAB_SIZE con un guard adicional.
+        private const val VOCAB_SIZE       = 100        // Safe lower bound hasta recibir vocab real
         private const val NUM_THREADS      = 2          // Threads de CPU para inferencia
         private const val OUTPUT_CLASSES   = 5          // Número de clases de salida
 
