@@ -29,6 +29,7 @@ model MinorProfile {
   id            String      @id @default(uuid())
   userId        String      @unique
   trustCode     String      @unique
+  deviceId      String?     @unique  // Android ID — para auto-registro
   guardianNotes String?
   createdAt     DateTime    @default(now())
   user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -69,6 +70,12 @@ model AiEvent {
   locationState String?
   locationCity  String?
   score         Float?
+  // ─── Vision ────────────────────────
+  visionLabel   String?        // "ALERTA RECLUTAMIENTO", "FLAG PASIVO", etc.
+  visionObjects String[]       // ["armas", "dinero"] — objetos detectados
+  // ─── Contexto de la interacción ───
+  detectedUser  String?        // Username/contacto detectado
+  screenContext String?        // "DIRECT_MESSAGE", "FEED", "COMMENTS"
   createdAt     DateTime       @default(now())
   minor         User           @relation("MinorAiEvents", fields: [minorId], references: [id], onDelete: Cascade)
   alerts        Alert[]
@@ -107,6 +114,7 @@ enum UserRole {
 }
 
 enum RiskLevel {
+  NONE
   LOW
   MEDIUM
   HIGH

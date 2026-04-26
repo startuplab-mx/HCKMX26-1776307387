@@ -41,6 +41,45 @@ app.post("/users/minor", async (req, res) => {
   }
 });
 
+// ─── Auto-registro por deviceId (demo) ─────────────────
+app.post("/users/minor/auto-register", async (req, res) => {
+  try {
+    const { deviceId, name } = req.body;
+
+    if (!deviceId) {
+      return res.status(400).json({ error: "deviceId es requerido" });
+    }
+
+    // Si ya existe un menor con este deviceId, devolver el existente
+    const existing = await prisma.minorProfile.findUnique({
+      where: { deviceId },
+      include: { user: true }
+    });
+
+    if (existing) {
+      return res.json({ registered: false, user: existing.user, minorProfile: existing });
+    }
+
+    // Crear nuevo menor
+    const trustCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+
+    const user = await prisma.user.create({
+      data: {
+        name: name || `Menor-${deviceId.substring(0, 6)}`,
+        role: "MINOR",
+        minorProfile: {
+          create: { trustCode, deviceId }
+        }
+      },
+      include: { minorProfile: true }
+    });
+
+    res.status(201).json({ registered: true, user, minorProfile: user.minorProfile });
+  } catch (error) {
+    res.status(500).json({ error: "Auto-registro fallido", details: error.message });
+  }
+});
+
 // ─── Crear adulto de confianza ────────────────────────────
 app.post("/users/adult", async (req, res) => {
   try {
@@ -99,13 +138,14 @@ app.post("/trust-links", async (req, res) => {
   }
 });
 
-// ─── Crear evento de IA ───────────────────────────────────
+// ─── Crear evento de IA ─────────────────────────────
 app.post("/ai-events", async (req, res) => {
   try {
     const {
       minorId, source, platform, riskType, riskLevel,
       summary, rawText, emojiTags, evidenceUrl,
-      locationState, locationCity, score
+      locationState, locationCity, score,
+      visionLabel, visionObjects, detectedUser, screenContext
     } = req.body;
 
     const event = await prisma.aiEvent.create({
@@ -113,9 +153,36 @@ app.post("/ai-events", async (req, res) => {
         minorId, source, platform, riskType, riskLevel,
         summary, rawText,
         emojiTags: emojiTags || [],
-        evidenceUrl, locationState, locationCity, score
+        evidenceUrl, locationState, locationCity, score,
+        visionLabel,
+        visionObjects: visionObjects || [],
+        detectedUser,
+        screenContext
       }
     });
+
+    // Si riskLevel es HIGH o CRITICAL, crear alertas para adultos vinculados
+    if (riskLevel === "HIGH" || riskLevel === "CRITICAL") {
+      const minorProfile = await prisma.minorProfile.findFirst({
+        where: { userId: minorId },
+        include: { links: { include: { adultProfile: true } } }
+      });
+
+      if (minorProfile) {
+        const alertPromises = minorProfile.links.map(link =>
+          prisma.alert.create({
+            data: {
+              aiEventId: event.id,
+              adultId: link.adultProfile.userId,
+              title: `Alerta ${riskLevel}: ${riskType}`,
+              message: summary,
+              status: "PENDING"
+            }
+          })
+        );
+        await Promise.all(alertPromises);
+      }
+    }
 
     res.status(201).json(event);
   } catch (error) {
@@ -123,12 +190,26 @@ app.post("/ai-events", async (req, res) => {
   }
 });
 
-// ─── Listar eventos de IA ─────────────────────────────────
+// ─── Listar eventos de IA ───────────────────────────
 app.get("/ai-events", async (req, res) => {
   try {
     const events = await prisma.aiEvent.findMany({
       orderBy: { createdAt: "desc" },
       include: { minor: true, alerts: true, reports: true }
+    });
+    res.json(events);
+  } catch (error) {
+    res.status(500).json({ error: "No se pudieron obtener los eventos", details: error.message });
+  }
+});
+
+// ─── Listar eventos por menor ───────────────────────
+app.get("/ai-events/minor/:minorId", async (req, res) => {
+  try {
+    const events = await prisma.aiEvent.findMany({
+      where: { minorId: req.params.minorId },
+      orderBy: { createdAt: "desc" },
+      include: { alerts: true }
     });
     res.json(events);
   } catch (error) {

@@ -129,9 +129,9 @@ struct ReportCardView: View {
                 }) {
                     HStack {
                         Spacer()
-                        Text(report.severity == .critical ? "View Full Evidence" : "Review Map Data")
+                        Text(report.severity == .critical ? "Ver evidencia completa" : "Revisar evento IA")
                             .font(.system(size: 13, weight: .semibold))
-                        Image(systemName: report.severity == .critical ? "arrow.right" : "map.fill")
+                        Image(systemName: report.severity == .critical ? "arrow.right" : "waveform.path.ecg")
                             .font(.system(size: 12, weight: .semibold))
                         Spacer()
                     }

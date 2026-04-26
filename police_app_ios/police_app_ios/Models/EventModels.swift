@@ -35,3 +35,31 @@ struct Report: Identifiable, Codable {
     var user: UserProfile
     var descriptionQuote: String
 }
+
+struct AiEvent: Decodable {
+    let id: String
+    let source: String
+    let platform: String
+    let riskType: String
+    let riskLevel: String
+    let summary: String
+    let rawText: String?
+    let emojiTags: [String]
+    let locationState: String?
+    let locationCity: String?
+    let score: Double?
+    let visionLabel: String?
+    let visionObjects: [String]
+    let detectedUser: String?
+    let screenContext: String?
+    let createdAt: Date
+    let minor: AiEventUser?
+}
+
+struct AiEventUser: Decodable {
+    let id: String
+    let name: String
+    let email: String?
+    let locationState: String?
+    let locationCity: String?
+}

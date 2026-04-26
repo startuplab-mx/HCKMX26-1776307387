@@ -4,7 +4,11 @@ import Foundation
 class CommandCenterViewModel: ObservableObject {
     @Published var reports: [Report] = []
     @Published var searchText: String = ""
+    @Published private(set) var isLoading = false
+    @Published private(set) var errorMessage: String?
     @Published private(set) var selectedSeverity: ReportSeverity?
+
+    private let eventsURL = URL(string: "http://127.0.0.1:3000/ai-events")!
 
     var filteredReports: [Report] {
         reports.filter { report in
@@ -33,44 +37,49 @@ class CommandCenterViewModel: ObservableObject {
     }
     
     func fetchReports() {
-        // TODO: Replace this mock data with actual fetch from local database once implemented.
-        let mockReports = [
-            Report(
-                id: "REP-2023-8942",
-                title: "Suspected Predatory Behavior",
-                severity: .critical,
-                timestamp: Calendar.current.date(byAdding: .minute, value: -10, to: Date()) ?? Date(),
-                status: .new,
-                location: "Sector North, Park Ave",
-                source: "Discord",
-                user: UserProfile(username: "@sarah_j99", type: .minorFlag),
-                descriptionQuote: "Transcript snippet flagged by NLP: 'Don't tell your parents where we are meeting...'"
-            ),
-            Report(
-                id: "REP-2023-8941",
-                title: "Geofence Breach Detected",
-                severity: .warning,
-                timestamp: Calendar.current.date(byAdding: .minute, value: -45, to: Date()) ?? Date(),
-                status: .inProgress,
-                location: "Sector East, Mall Area",
-                source: "Device GPS",
-                user: UserProfile(username: "@mike_t", type: .standardUser),
-                descriptionQuote: "Device exited approved 'School Zone' geofence at 14:32 during restricted hours."
-            ),
-            Report(
-                id: "REP-2023-8940",
-                title: "Suspicious Group Message Review",
-                severity: .information,
-                timestamp: Calendar.current.date(byAdding: .hour, value: -2, to: Date()) ?? Date(),
-                status: .resolved,
-                location: "Sector West, Community Center",
-                source: "Discord",
-                user: UserProfile(username: "@lina_reports", type: .standardUser),
-                descriptionQuote: "Automated review flagged language for analyst follow-up, but no direct threat indicators were confirmed."
-            )
-        ]
-        
-        self.reports = mockReports
+        Task {
+            await loadAiEvents()
+        }
+    }
+
+    func loadAiEvents() async {
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            let (data, response) = try await URLSession.shared.data(from: eventsURL)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  200..<300 ~= httpResponse.statusCode else {
+                throw URLError(.badServerResponse)
+            }
+
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .custom { decoder in
+                let container = try decoder.singleValueContainer()
+                let value = try container.decode(String.self)
+
+                if let date = ISO8601DateFormatter.withFractionalSeconds.date(from: value) {
+                    return date
+                }
+
+                if let date = ISO8601DateFormatter.standard.date(from: value) {
+                    return date
+                }
+
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "Invalid ISO8601 date: \(value)"
+                )
+            }
+
+            let events = try decoder.decode([AiEvent].self, from: data)
+            reports = events.map(Self.makeReport(from:))
+            isLoading = false
+        } catch {
+            errorMessage = "No se pudieron cargar eventos de IA desde el backend local."
+            reports = []
+            isLoading = false
+        }
     }
 
     private func matchesSelectedSeverity(_ report: Report) -> Bool {
@@ -100,5 +109,119 @@ class CommandCenterViewModel: ObservableObject {
         return searchableValues.contains { value in
             value.localizedLowercase.contains(query)
         }
+    }
+
+    private static func makeReport(from event: AiEvent) -> Report {
+        let severity = severity(from: event.riskLevel)
+        let minorName = event.minor?.name ?? "Menor sin identificar"
+        let location = [
+            event.locationCity ?? event.minor?.locationCity,
+            event.locationState ?? event.minor?.locationState
+        ]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+
+        return Report(
+            id: "IA-\(event.id.prefix(8).uppercased())",
+            title: title(for: event),
+            severity: severity,
+            timestamp: event.createdAt,
+            status: status(for: event.riskLevel),
+            location: location.isEmpty ? event.screenContext?.displayName ?? "Sin ubicacion" : location,
+            source: event.platform.displayName,
+            user: UserProfile(
+                username: event.detectedUser?.firstDisplayLine ?? minorName,
+                type: .minorFlag
+            ),
+            descriptionQuote: description(for: event)
+        )
+    }
+
+    private static func severity(from riskLevel: String) -> ReportSeverity {
+        switch riskLevel.uppercased() {
+        case "CRITICAL":
+            return .critical
+        case "HIGH", "MEDIUM":
+            return .warning
+        default:
+            return .information
+        }
+    }
+
+    private static func status(for riskLevel: String) -> ReportStatus {
+        switch riskLevel.uppercased() {
+        case "CRITICAL", "HIGH":
+            return .new
+        case "MEDIUM":
+            return .inProgress
+        default:
+            return .resolved
+        }
+    }
+
+    private static func title(for event: AiEvent) -> String {
+        let risk = event.riskType.replacingOccurrences(of: "_", with: " ").displayName
+        let source = event.source.displayName
+
+        if let visionLabel = event.visionLabel, !visionLabel.isEmpty {
+            return "\(source): \(visionLabel.displayName)"
+        }
+
+        return "\(source): \(risk)"
+    }
+
+    private static func description(for event: AiEvent) -> String {
+        var parts = [event.summary]
+
+        if let rawText = event.rawText?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !rawText.isEmpty {
+            parts.append("Texto detectado: \(rawText)")
+        }
+
+        if !event.emojiTags.isEmpty {
+            parts.append("Emojis: \(event.emojiTags.joined(separator: " "))")
+        }
+
+        if !event.visionObjects.isEmpty {
+            parts.append("Objetos: \(event.visionObjects.joined(separator: ", "))")
+        }
+
+        if let score = event.score {
+            parts.append("Confianza: \(Int(score * 100))%")
+        }
+
+        return parts.joined(separator: "\n")
+    }
+}
+
+private extension ISO8601DateFormatter {
+    static let withFractionalSeconds: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    static let standard: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+}
+
+private extension String {
+    var displayName: String {
+        replacingOccurrences(of: "_", with: " ")
+            .split(separator: " ")
+            .map { word in
+                word.prefix(1).uppercased() + word.dropFirst().lowercased()
+            }
+            .joined(separator: " ")
+    }
+
+    var firstDisplayLine: String {
+        components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? self
     }
 }

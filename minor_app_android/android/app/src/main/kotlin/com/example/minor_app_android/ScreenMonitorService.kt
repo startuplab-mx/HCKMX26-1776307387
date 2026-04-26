@@ -186,24 +186,23 @@ class ScreenMonitorService : Service() {
         val result = nlpProcessor.analyze(tokens)
         
         // Si Vision detectó algo crítico, forzamos alerta o subimos score
-        if (visionFlagged && visionLabel != null) {
-            // Combinar lógica NLP + Vision
-            val finalResult = if (visionLabel.contains("RECLUTAMIENTO")) {
+        val finalResult = if (visionFlagged && visionLabel != null) {
+            if (visionLabel.contains("RECLUTAMIENTO")) {
                 result.copy(
                     alertLevel = AlertLevel.CRITICAL,
                     hasRisk = true,
                     label = "vision_alert_$visionLabel"
                 )
             } else {
-                result
+                result.copy(hasRisk = true)
             }
-            handleNlpResult(finalResult, visionLabel)
         } else {
-            // Flujo normal NLP
-            if (result.hasRisk) {
-                handleNlpResult(result, null)
-            }
+            result
         }
+
+        // Siempre procesar y subir al backend — la police app necesita
+        // visibilidad completa de toda la actividad del menor
+        handleNlpResult(finalResult, if (visionFlagged) visionLabel else null)
     }
 
     private fun handleNlpResult(result: NlpResult, visionLabel: String? = null) {
