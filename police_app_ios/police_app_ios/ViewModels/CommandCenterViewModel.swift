@@ -4,11 +4,7 @@ import Foundation
 class CommandCenterViewModel: ObservableObject {
     @Published var reports: [Report] = []
     @Published var searchText: String = ""
-    @Published private(set) var selectedSeverities: Set<ReportSeverity> = [
-        .critical,
-        .warning,
-        .information
-    ]
+    @Published private(set) var selectedSeverity: ReportSeverity?
 
     var filteredReports: [Report] {
         reports.filter { report in
@@ -21,15 +17,15 @@ class CommandCenterViewModel: ObservableObject {
     }
 
     func toggleSeverity(_ severity: ReportSeverity) {
-        if selectedSeverities.contains(severity) {
-            selectedSeverities.remove(severity)
+        if selectedSeverity == severity {
+            selectedSeverity = nil
         } else {
-            selectedSeverities.insert(severity)
+            selectedSeverity = severity
         }
     }
 
     func isSeveritySelected(_ severity: ReportSeverity) -> Bool {
-        selectedSeverities.contains(severity)
+        selectedSeverity == severity
     }
 
     func count(for severity: ReportSeverity) -> Int {
@@ -78,7 +74,11 @@ class CommandCenterViewModel: ObservableObject {
     }
 
     private func matchesSelectedSeverity(_ report: Report) -> Bool {
-        selectedSeverities.contains(report.severity)
+        guard let selectedSeverity else {
+            return true
+        }
+
+        return report.severity == selectedSeverity
     }
 
     private func matchesSearchText(_ report: Report) -> Bool {
