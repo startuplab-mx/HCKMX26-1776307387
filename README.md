@@ -18,53 +18,24 @@ El sistema busca resolver este problema mediante:
 
 ## Tecnologias y herramientas utilizadas
 
-### App movil Android
-
-- Flutter
-- Dart
-- Material 3
-- Kotlin
-- Android Accessibility Service
-- Android Foreground Service
-- MethodChannel para comunicacion Flutter/Kotlin
-- Android SDK y Android Studio
-
-### Inteligencia artificial y procesamiento
-
-- TensorFlow Lite
-- Google ML Kit Text Recognition
-- Modelo NLP TFLite empaquetado en Android
-- Pipeline OCR, Vision y NLP
-- Python para entrenamiento y validacion del modelo NLP
-- Dataset local para entrenamiento y pruebas
-
-### Backend y datos
-
-- Docker Compose
-- PostgreSQL 16
-- Persistencia local/mock para eventos de seguridad
-
-### App complementaria iOS
-
-- Swift
-- SwiftUI
-- Xcode
-
-### Desarrollo y control de versiones
-
-- Git
-- GitHub
-- Logcat y ADB para depuracion Android
+- **Flutter / Dart** — App movil Android con servicios nativos de accesibilidad y monitoreo en primer plano.
+- **Node.js** — Backend y servidor de la API.
+- **Prisma** — ORM para manejo del esquema y consultas a la base de datos.
+- **PostgreSQL** — Base de datos relacional para persistencia de eventos de seguridad.
+- **TensorFlow / TensorFlow Lite** — Entrenamiento y ejecucion en dispositivo del modelo NLP de clasificacion de texto.
+- **Python** — Entrenamiento, validacion y exportacion de los modelos de inteligencia artificial.
+- **YOLO (YOLOv8)** — Deteccion de objetos para el modelo de vision, entrenado en Google Colab y exportado a TFLite.
+- **Xcode / Swift / SwiftUI** — App iOS complementaria para el command center.
 
 ## Estructura del repositorio
 
 ```text
 .
-├── backend/             # Docker Compose con PostgreSQL
+├── backend/             # Node.js con Prisma y PostgreSQL
 ├── dataset/             # Datos de entrenamiento NLP
 ├── minor_app_android/   # App Flutter + servicios nativos Android
 ├── model_nlp/           # Modelo NLP TFLite, vocabulario y labels
-├── model_vision/        # Notebook de entrenamiento de vision
+├── model_vision/        # Notebook de entrenamiento de vision con YOLOv8
 └── police_app_ios/      # App iOS SwiftUI para command center
 ```
 
@@ -126,6 +97,28 @@ adb logcat -s MinorMainActivity MinorMonitor MinorAccessibility flutter
 2. Seleccionar un simulador iOS.
 3. Ejecutar el proyecto desde Xcode.
 
+### 5. Entrenar el modelo NLP
+
+Desde la raiz del repositorio:
+
+```bash
+cd model_nlp
+python trainer.py
+```
+
+El script toma el dataset en `dataset/`, entrena el modelo de clasificacion de texto y exporta los archivos resultantes (`recruitment_detector.tflite`, `vocab.txt`, `labels.txt`) dentro de `model_nlp/`.
+
+### 6. Entrenar el modelo de vision
+
+El entrenamiento del modelo de vision se realiza en Google Colab usando el notebook incluido en `model_vision/`.
+
+1. Abrir el notebook en Google Colab.
+2. Subir el dataset de imagenes a `/content/vision_dataset/` con la estructura de carpetas esperada.
+3. Ejecutar las celdas en orden para preparar el dataset, entrenar con YOLOv8 y exportar el modelo a formato TFLite.
+4. Descargar el archivo `modelo_tactical_v1.zip` generado al final del notebook, que contiene los pesos `.pt` y el modelo `.tflite` listo para integrarse en la app Android.
+
+---
+
 ## Demo del prototipo
 
 - Repositorio publico: [https://github.com/startuplab-mx/HCKMX26-1776307387](https://github.com/startuplab-mx/HCKMX26-1776307387)
@@ -153,9 +146,21 @@ Durante el desarrollo se utilizaron herramientas de IA como apoyo para ideacion,
 - En que medida: uso moderado durante la programacion diaria.
 - Resultado esperado: reduccion de tiempo en escritura de codigo repetitivo y apoyo en implementaciones puntuales.
 
+### ChatGPT
+
+- Para que se uso: consultas tecnicas, resolucion de dudas de implementacion, generacion de fragmentos de codigo y apoyo en documentacion.
+- En que medida: uso moderado como referencia tecnica y apoyo durante el desarrollo.
+- Resultado esperado: respuestas rapidas a preguntas puntuales y alternativas de implementacion para distintos modulos del prototipo.
+
+### Claude
+
+- Para que se uso: redaccion y mejora de documentacion, revision de logica de codigo, apoyo en integracion de componentes y consultas sobre arquitectura del sistema.
+- En que medida: uso moderado como asistente de documentacion y revision tecnica.
+- Resultado esperado: documentacion mas clara y consistente, y apoyo en decisiones de diseno tecnico del prototipo.
+
 ## Integrantes del equipo
 
 - Diego Obed Lopez Casimiro
-- Axel
-- Luis Mario
-- Mauricio
+- Axel Eduardo Urbina Secundino
+- Luis Mario Albino Merino
+- Mauricio Carreola Cuevas
