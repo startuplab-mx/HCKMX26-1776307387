@@ -165,3 +165,6 @@ Durante el desarrollo se utilizaron herramientas de IA como apoyo para ideacion,
 - Luis Mario Albino Merino
 - Mauricio Carreola Cuevas
 - Ali Gael Lopez Casimiro
+
+# Link de video de presentación 
+https://youtu.be/q_8tgb6BPv4
