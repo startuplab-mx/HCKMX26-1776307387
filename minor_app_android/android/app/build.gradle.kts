@@ -54,8 +54,6 @@ dependencies {
 
     // TFLite runtime
     implementation("org.tensorflow:tensorflow-lite:2.14.0")
-    // GPU Delegate — inferencia en GPU, 3-5x más rápido que CPU
-    implementation("org.tensorflow:tensorflow-lite-gpu:2.14.0")
     // Support library — utilidades para cargar modelos desde assets
     implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
 }
