@@ -36,6 +36,7 @@ struct CommandCenterView: View {
 
 struct EvidenceView: View {
     @ObservedObject var viewModel: CommandCenterViewModel
+    @State private var showsAdvancedFilters = false
     
     var body: some View {
         VStack(spacing: 0) {
@@ -102,20 +103,30 @@ struct EvidenceView: View {
                                 .stroke(Color.gray.opacity(0.3), lineWidth: 1)
                         )
                         
-                        Button(action: {}) {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showsAdvancedFilters.toggle()
+                            }
+                        } label: {
                             Image(systemName: "slider.horizontal.3")
-                                .foregroundColor(.primary)
+                                .foregroundColor(showsAdvancedFilters || viewModel.hasActiveFilters ? .white : .primary)
                                 .padding(10)
-                                .background(Color.white)
+                                .background(showsAdvancedFilters || viewModel.hasActiveFilters ? Color.black : Color.white)
                                 .cornerRadius(8)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 8)
-                                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                                        .stroke(Color.gray.opacity(showsAdvancedFilters || viewModel.hasActiveFilters ? 0 : 0.3), lineWidth: 1)
                                 )
                         }
+                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal)
                     .padding(.top, 16)
+
+                    if showsAdvancedFilters {
+                        AdvancedFiltersView(viewModel: viewModel)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
                     
                     // Filter Chips
                     HStack(spacing: 12) {
@@ -146,6 +157,23 @@ struct EvidenceView: View {
                         Spacer()
                     }
                     .padding(.horizontal)
+
+                    if viewModel.hasActiveFilters {
+                        HStack {
+                            Text("\(viewModel.filteredReports.count) de \(viewModel.reports.count) eventos")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Button("Limpiar filtros") {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    viewModel.clearFilters()
+                                }
+                            }
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.primary)
+                        }
+                        .padding(.horizontal)
+                    }
                     
                     Divider()
                         .padding(.vertical, 8)
@@ -209,6 +237,97 @@ struct EvidenceView: View {
                 .padding(.bottom, 20)
             }
             .background(Color(white: 0.98)) // Very light gray background like mockup
+        }
+    }
+}
+
+struct AdvancedFiltersView: View {
+    @ObservedObject var viewModel: CommandCenterViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Plataforma")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.secondary)
+
+                if viewModel.availableSources.isEmpty {
+                    Text("Sin plataformas disponibles")
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                } else {
+                    FlowLayout(spacing: 8) {
+                        ForEach(viewModel.availableSources, id: \.self) { source in
+                            FilterChip(
+                                title: source,
+                                count: viewModel.count(for: source),
+                                color: .purple,
+                                isSelected: viewModel.selectedSource == source
+                            ) {
+                                viewModel.toggleSource(source)
+                            }
+                        }
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Estado")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.secondary)
+
+                HStack(spacing: 8) {
+                    FilterChip(
+                        title: "Nuevo",
+                        count: viewModel.count(for: .new),
+                        color: .blue,
+                        isSelected: viewModel.selectedStatus == .new
+                    ) {
+                        viewModel.toggleStatus(.new)
+                    }
+                    FilterChip(
+                        title: "En progreso",
+                        count: viewModel.count(for: .inProgress),
+                        color: .indigo,
+                        isSelected: viewModel.selectedStatus == .inProgress
+                    ) {
+                        viewModel.toggleStatus(.inProgress)
+                    }
+                    FilterChip(
+                        title: "Resuelto",
+                        count: viewModel.count(for: .resolved),
+                        color: .green,
+                        isSelected: viewModel.selectedStatus == .resolved
+                    ) {
+                        viewModel.toggleStatus(.resolved)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(Color.white)
+        .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.gray.opacity(0.25), lineWidth: 1)
+        )
+        .padding(.horizontal)
+    }
+}
+
+struct FlowLayout<Content: View>: View {
+    let spacing: CGFloat
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: spacing) {
+                content
+            }
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: spacing)], alignment: .leading, spacing: spacing) {
+                content
+            }
         }
     }
 }
