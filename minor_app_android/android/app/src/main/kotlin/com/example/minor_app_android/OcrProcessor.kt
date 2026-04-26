@@ -20,12 +20,13 @@ object OcrProcessor {
     // ══════════════════════════════════════════════════
     fun processFromAccessibility(content: AppAccessibilityService.ExtractedContent): OcrTokens {
         return OcrTokens(
-            cleanText     = cleanText(content.rawText),
-            emojis        = content.emojis.distinct(),
-            source        = OcrSource.ACCESSIBILITY,
-            packageName   = content.packageName,
-            screenContext = content.screenContext,
-            timestamp     = content.timestamp
+            cleanText        = cleanText(content.rawText),
+            emojis           = content.emojis.distinct(),
+            source           = OcrSource.ACCESSIBILITY,
+            packageName      = content.packageName,
+            screenContext    = content.screenContext,
+            timestamp        = content.timestamp,
+            detectedUsername = content.detectedUsername
         )
     }
 
@@ -161,25 +162,27 @@ enum class OcrSource {
 // OUTPUT — tokens listos para el NLP
 // ══════════════════════════════════════════════════
 data class OcrTokens(
-    val cleanText:     String,
-    val emojis:        List<String>,
-    val source:        OcrSource,
-    val packageName:   String,
-    val screenContext: AppAccessibilityService.ScreenContext,
-    val timestamp:     Long,
-    val confidence:    Float? = null,   // Solo presente si source == ML_KIT
-    val error:         String? = null   // Solo presente si hubo fallo
+    val cleanText:        String,
+    val emojis:           List<String>,
+    val source:           OcrSource,
+    val packageName:      String,
+    val screenContext:    AppAccessibilityService.ScreenContext,
+    val timestamp:        Long,
+    val confidence:       Float? = null,
+    val error:            String? = null,
+    val detectedUsername: String? = null
 ) {
     val isValid: Boolean get() = error == null && cleanText.isNotBlank()
 
     fun toMap(): Map<String, Any?> = mapOf(
-        "clean_text"     to cleanText,
-        "emojis"         to emojis,
-        "source"         to source.name,
-        "package_name"   to packageName,
-        "screen_context" to screenContext.name,
-        "timestamp"      to timestamp,
-        "confidence"     to confidence,
-        "is_valid"       to isValid
+        "clean_text"        to cleanText,
+        "emojis"            to emojis,
+        "source"            to source.name,
+        "package_name"      to packageName,
+        "screen_context"    to screenContext.name,
+        "timestamp"         to timestamp,
+        "confidence"        to confidence,
+        "is_valid"          to isValid,
+        "detected_username" to detectedUsername
     )
 }

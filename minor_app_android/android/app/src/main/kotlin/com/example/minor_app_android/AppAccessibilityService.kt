@@ -60,6 +60,8 @@ class AppAccessibilityService : AccessibilityService() {
     // MethodChannel hacia Flutter
     private var methodChannel: MethodChannel? = null
     private val CHANNEL = "com.minorapp/ocr"
+    
+    private lateinit var visionProcessor: VisionProcessor
 
     // ══════════════════════════════════════════════════
     // CICLO DE VIDA
@@ -93,6 +95,12 @@ class AppAccessibilityService : AccessibilityService() {
             action = ScreenMonitorService.ACTION_ACCESSIBILITY_CONNECTED
         }
         startService(intent)
+
+        // Inicializar Vision para capturas
+        visionProcessor = VisionProcessor(applicationContext)
+        visionProcessor.initialize()
+            .onSuccess { Log.d(TAG, "Vision processor initialized") }
+            .onFailure { e -> Log.e(TAG, "Vision initialization failed: ${e.message}") }
     }
 
     override fun onInterrupt() {
@@ -103,6 +111,7 @@ class AppAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         Log.d(TAG, "Accessibility service destroyed")
+        visionProcessor.close()
         executor.shutdown()
         super.onDestroy()
     }
@@ -182,13 +191,18 @@ class AppAccessibilityService : AccessibilityService() {
                         this,
                         executor,
                         packageName,
-                        extractedContent.screenContext
-                    ) { screenshotResult ->
+                        extractedContent.screenContext,
+                        visionProcessor
+                    ) { screenshotResult, visionResult ->
                         Log.d(TAG, "Screenshot OCR result TEXT=\"${screenshotResult.cleanText}\"")
+                        if (visionResult != null && visionResult.isFlagged) {
+                            Log.d(TAG, "Screenshot Vision result: ${visionResult.primaryLabel}")
+                        }
+                        
                         mainHandler.post {
                             sendToFlutter("ocr_result", screenshotResult.toMap())
                         }
-                        forwardToMonitorService(screenshotResult)
+                        forwardToMonitorService(screenshotResult, visionResult)
                     }
                 }
             }
@@ -214,15 +228,19 @@ class AppAccessibilityService : AccessibilityService() {
 
         traverseNodes(root, textBuilder, emojis, nodeTexts, mediaFlags, depth = 0)
 
+        // Extraer username/contacto de la persona con quien interactúa
+        val detectedUsername = UsernameExtractor.extract(root, packageName)
+
         return ExtractedContent(
-            rawText       = textBuilder.toString().trim(),
-            emojis        = emojis.distinct(),
-            nodeTexts     = nodeTexts,
-            packageName   = packageName,
-            timestamp     = System.currentTimeMillis(),
-            screenContext = detectScreenContext(packageName, nodeTexts),
-            hasMediaNode  = mediaFlags[0],
-            hasVideoNode  = mediaFlags[1]
+            rawText          = textBuilder.toString().trim(),
+            emojis           = emojis.distinct(),
+            nodeTexts        = nodeTexts,
+            packageName      = packageName,
+            timestamp        = System.currentTimeMillis(),
+            screenContext    = detectScreenContext(packageName, nodeTexts),
+            hasMediaNode     = mediaFlags[0],
+            hasVideoNode     = mediaFlags[1],
+            detectedUsername = detectedUsername
         )
     }
 
@@ -329,7 +347,7 @@ class AppAccessibilityService : AccessibilityService() {
         methodChannel?.invokeMethod(method, data)
     }
 
-    private fun forwardToMonitorService(result: OcrTokens) {
+    private fun forwardToMonitorService(result: OcrTokens, visionResult: VisionResult? = null) {
         val intent = Intent(this, ScreenMonitorService::class.java).apply {
             action = ScreenMonitorService.ACTION_OCR_RESULT
             putExtra("clean_text", result.cleanText)
@@ -337,6 +355,13 @@ class AppAccessibilityService : AccessibilityService() {
             putExtra("package_name", result.packageName)
             putExtra("screen_context", result.screenContext.name)
             putExtra("timestamp", result.timestamp)
+            putExtra("ocr_source", result.source.name)
+            putExtra("detected_username", result.detectedUsername)
+            
+            visionResult?.let {
+                putExtra("vision_label", it.primaryLabel)
+                putExtra("vision_flagged", it.isFlagged)
+            }
         }
         startService(intent)
     }
@@ -352,7 +377,8 @@ class AppAccessibilityService : AccessibilityService() {
         val timestamp: Long,
         val screenContext: ScreenContext,
         val hasMediaNode: Boolean = false,
-        val hasVideoNode: Boolean = false
+        val hasVideoNode: Boolean = false,
+        val detectedUsername: String? = null
     )
 
     enum class ScreenContext {
