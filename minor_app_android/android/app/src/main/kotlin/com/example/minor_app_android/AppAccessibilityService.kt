@@ -161,7 +161,7 @@ class AppAccessibilityService : AccessibilityService() {
             val result = OcrProcessor.processFromAccessibility(extractedContent)
             Log.d(
                 TAG,
-                "OCR result pkg=${result.packageName}, ctx=${result.screenContext}, TEXT=\"${result.cleanText}\""
+                "OCR result pkg=${result.packageName}, ctx=${result.screenContext}, TEXT=\"${result.cleanText}\", EMOJIS=${result.emojis}"
             )
 
             // Enviar a Flutter y a ScreenMonitorService (solo si hay texto nativo válido)
@@ -277,11 +277,7 @@ class AppAccessibilityService : AccessibilityService() {
     // Detecta emojis simples, secuencias ZWJ y variantes
     // ══════════════════════════════════════════════════
     private val emojiRegex = Regex(
-        "[\\uD83C-\\uDBFF\\uDC00-\\uDFFF]+" +      // Surrogate pairs (emojis estándar)
-        "|[\\u2600-\\u27FF]" +                       // Símbolos misceláneos
-        "|[\\u2300-\\u23FF]" +                       // Símbolos técnicos
-        "|[\\uFE00-\\uFE0F]" +                       // Selectores de variante
-        "|[\\u1F000-\\u1FFFF]"                       // Rango emoji extendido
+        "(?:[\\x{1F000}-\\x{1FAFF}]|[\\x{2600}-\\x{27BF}]|[\\x{2300}-\\x{23FF}]|[\\x{FE0E}\\x{FE0F}]|\\x{200D})+"
     )
 
     private fun extractEmojis(text: String): List<String> {

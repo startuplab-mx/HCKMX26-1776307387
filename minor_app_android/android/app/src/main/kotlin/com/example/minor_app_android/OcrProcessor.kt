@@ -115,9 +115,7 @@ object OcrProcessor {
     // EXTRACTOR DE EMOJIS
     // ══════════════════════════════════════════════════
     private val emojiRegex = Regex(
-        "[\\uD83C-\\uDBFF\\uDC00-\\uDFFF]+" +
-        "|[\\u2600-\\u27FF]" +
-        "|[\\u2300-\\u23FF]"
+        "(?:[\\x{1F000}-\\x{1FAFF}]|[\\x{2600}-\\x{27BF}]|[\\x{2300}-\\x{23FF}]|[\\x{FE0E}\\x{FE0F}]|\\x{200D})+"
     )
 
     private fun extractEmojis(text: String): List<String> {
