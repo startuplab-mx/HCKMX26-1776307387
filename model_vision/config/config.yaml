@@ -1,0 +1,49 @@
+# ─────────────────────────────────────────────
+#  Configuración del pipeline vision_tactical
+# ─────────────────────────────────────────────
+
+dataset:
+  dir: "vision_dataset"
+  classes:
+    - name: armas
+      tier: 1
+    - name: botellas
+      tier: 2
+    - name: dinero
+      tier: 2
+    - name: animales
+      tier: 2
+
+training:
+  model: "yolov8s.pt"
+  imgsz: 640
+  epochs: 50
+  batch: 16
+  patience: 20
+  device: "cuda"        # cambia a "cpu" si no tienes GPU
+  project: "runs"
+  name: "vision_tactical_v1"
+  augmentation:
+    hsv_h: 0.015
+    hsv_s: 0.7
+    degrees: 10.0
+    flipud: 0.0
+    fliplr: 0.5
+    mosaic: 1.0
+
+scoring:
+  confidence_threshold: 0.40
+  levels:
+    - condition: "tier1 >= 1 and tier2 >= 2"
+      label: "ALERTA RECLUTAMIENTO"
+    - condition: "tier1 >= 1 and tier2 >= 1"
+      label: "FLAG ASPIRACIONALIDAD"
+    - condition: "tier1 >= 1"
+      label: "FLAG PASIVO"
+    - condition: "default"
+      label: "SIN ALERTA"
+
+export:
+  formats:
+    - tflite
+  output_zip: "modelo_tactical_v1.zip"

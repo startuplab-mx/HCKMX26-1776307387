@@ -1,0 +1,133 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String               @id @default(uuid())
+  name           String
+  email          String?              @unique
+  phone          String?
+  role           UserRole
+  locationState  String?
+  locationCity   String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  aiEvents       AiEvent[]            @relation("MinorAiEvents")
+  alertsReceived Alert[]              @relation("AdultAlerts")
+  minorProfile   MinorProfile?
+  reportsCreated SafetyReport[]       @relation("AdultReports")
+  adultProfile   TrustedAdultProfile?
+}
+
+model MinorProfile {
+  id            String      @id @default(uuid())
+  userId        String      @unique
+  trustCode     String      @unique
+  guardianNotes String?
+  createdAt     DateTime    @default(now())
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  links         TrustLink[]
+}
+
+model TrustedAdultProfile {
+  id           String      @id @default(uuid())
+  userId       String      @unique
+  relationship String?
+  createdAt    DateTime    @default(now())
+  links        TrustLink[]
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model TrustLink {
+  id             String              @id @default(uuid())
+  minorProfileId String
+  adultProfileId String
+  createdAt      DateTime            @default(now())
+  adultProfile   TrustedAdultProfile @relation(fields: [adultProfileId], references: [id], onDelete: Cascade)
+  minorProfile   MinorProfile        @relation(fields: [minorProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([minorProfileId, adultProfileId])
+}
+
+model AiEvent {
+  id            String         @id @default(uuid())
+  minorId       String
+  source        EventSource
+  platform      String
+  riskType      String
+  riskLevel     RiskLevel
+  summary       String
+  rawText       String?
+  emojiTags     String[]
+  evidenceUrl   String?
+  locationState String?
+  locationCity  String?
+  score         Float?
+  createdAt     DateTime       @default(now())
+  minor         User           @relation("MinorAiEvents", fields: [minorId], references: [id], onDelete: Cascade)
+  alerts        Alert[]
+  reports       SafetyReport[]
+}
+
+model Alert {
+  id        String      @id @default(uuid())
+  aiEventId String
+  adultId   String
+  title     String
+  message   String
+  status    AlertStatus @default(PENDING)
+  createdAt DateTime    @default(now())
+  adult     User        @relation("AdultAlerts", fields: [adultId], references: [id], onDelete: Cascade)
+  aiEvent   AiEvent     @relation(fields: [aiEventId], references: [id], onDelete: Cascade)
+}
+
+model SafetyReport {
+  id            String       @id @default(uuid())
+  aiEventId     String
+  createdById   String
+  authorityArea String?
+  description   String
+  status        ReportStatus @default(SUBMITTED)
+  createdAt     DateTime     @default(now())
+  aiEvent       AiEvent      @relation(fields: [aiEventId], references: [id], onDelete: Cascade)
+  createdBy     User         @relation("AdultReports", fields: [createdById], references: [id], onDelete: Cascade)
+}
+
+enum UserRole {
+  MINOR
+  TRUSTED_ADULT
+  AUTHORITY
+  ADMIN
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum EventSource {
+  OCR_EMOJI
+  VISION
+  NLP
+  MANUAL
+}
+
+enum AlertStatus {
+  PENDING
+  SEEN
+  RESOLVED
+}
+
+enum ReportStatus {
+  SUBMITTED
+  IN_REVIEW
+  CLOSED
+}
