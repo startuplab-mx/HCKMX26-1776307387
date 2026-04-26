@@ -18,7 +18,8 @@ object ScreenshotOcrProcessor {
         executor: Executor,
         packageName: String,
         screenContext: AppAccessibilityService.ScreenContext,
-        onResult: (OcrTokens) -> Unit
+        visionProcessor: VisionProcessor?,
+        onResult: (OcrTokens, VisionResult?) -> Unit
     ) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             Log.d(TAG, "takeScreenshot requires API 30+, skipping")
@@ -41,10 +42,17 @@ object ScreenshotOcrProcessor {
                         hardwareBuffer.close()
 
                         CoroutineScope(Dispatchers.Default).launch {
-                            val tokens = OcrProcessor.processFromImage(softwareBitmap, packageName, screenContext)
-                            if (tokens.isValid) {
-                                val finalTokens = tokens.copy(source = OcrSource.SCREENSHOT)
-                                onResult(finalTokens)
+                            // Run OCR and Vision in parallel
+                            val tokensJob = launch {
+                                val tokens = OcrProcessor.processFromImage(softwareBitmap, packageName, screenContext)
+                                if (tokens.isValid) {
+                                    val finalTokens = tokens.copy(source = OcrSource.SCREENSHOT)
+                                    
+                                    // Run Vision on the same bitmap if available
+                                    val visionResult = visionProcessor?.analyze(softwareBitmap)
+                                    
+                                    onResult(finalTokens, visionResult)
+                                }
                             }
                         }
                     } catch (e: Exception) {

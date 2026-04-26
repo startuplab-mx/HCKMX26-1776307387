@@ -144,16 +144,17 @@ class NlpProcessor(private val context: Context) {
         Log.d(TAG, "NLP result: label=$label score=$score alert=$alertLevel")
 
         return NlpResult(
-            label         = label,
-            riskScore     = score,
-            alertLevel    = alertLevel,
-            allScores     = mapOf("safe" to (1f - score), "reclutamiento" to score),
-            hasRisk       = alertLevel != AlertLevel.NONE,
-            packageName   = tokens.packageName,
-            screenContext = tokens.screenContext,
-            ocrSource     = tokens.source,
-            emojis        = tokens.emojis,
-            timestamp     = tokens.timestamp
+            label            = label,
+            riskScore        = score,
+            alertLevel       = alertLevel,
+            allScores        = mapOf("safe" to (1f - score), "reclutamiento" to score),
+            hasRisk          = alertLevel != AlertLevel.NONE,
+            packageName      = tokens.packageName,
+            screenContext    = tokens.screenContext,
+            ocrSource        = tokens.source,
+            emojis           = tokens.emojis,
+            timestamp        = tokens.timestamp,
+            detectedUsername = tokens.detectedUsername
         )
     }
 
@@ -192,59 +193,63 @@ class NlpProcessor(private val context: Context) {
 // DATA CLASSES
 // ══════════════════════════════════════════════════
 data class NlpResult(
-    val label:         String,
-    val riskScore:     Float,
-    val alertLevel:    AlertLevel,
-    val allScores:     Map<String, Float>,
-    val hasRisk:       Boolean,
-    val packageName:   String,
-    val screenContext: AppAccessibilityService.ScreenContext,
-    val ocrSource:     OcrSource,
-    val emojis:        List<String>,
-    val timestamp:     Long,
-    val error:         String? = null
+    val label:            String,
+    val riskScore:        Float,
+    val alertLevel:       AlertLevel,
+    val allScores:        Map<String, Float>,
+    val hasRisk:          Boolean,
+    val packageName:      String,
+    val screenContext:    AppAccessibilityService.ScreenContext,
+    val ocrSource:        OcrSource,
+    val emojis:           List<String>,
+    val timestamp:        Long,
+    val error:            String? = null,
+    val detectedUsername: String? = null
 ) {
     companion object {
         fun empty(tokens: OcrTokens) = NlpResult(
-            label         = "safe",
-            riskScore     = 0f,
-            alertLevel    = AlertLevel.NONE,
-            allScores     = emptyMap(),
-            hasRisk       = false,
-            packageName   = tokens.packageName,
-            screenContext = tokens.screenContext,
-            ocrSource     = tokens.source,
-            emojis        = tokens.emojis,
-            timestamp     = tokens.timestamp
+            label            = "safe",
+            riskScore        = 0f,
+            alertLevel       = AlertLevel.NONE,
+            allScores        = emptyMap(),
+            hasRisk          = false,
+            packageName      = tokens.packageName,
+            screenContext    = tokens.screenContext,
+            ocrSource        = tokens.source,
+            emojis           = tokens.emojis,
+            timestamp        = tokens.timestamp,
+            detectedUsername = tokens.detectedUsername
         )
 
         fun error(message: String, tokens: OcrTokens) = NlpResult(
-            label         = "ERROR",
-            riskScore     = 0f,
-            alertLevel    = AlertLevel.NONE,
-            allScores     = emptyMap(),
-            hasRisk       = false,
-            packageName   = tokens.packageName,
-            screenContext = tokens.screenContext,
-            ocrSource     = tokens.source,
-            emojis        = tokens.emojis,
-            timestamp     = tokens.timestamp,
-            error         = message
+            label            = "ERROR",
+            riskScore        = 0f,
+            alertLevel       = AlertLevel.NONE,
+            allScores        = emptyMap(),
+            hasRisk          = false,
+            packageName      = tokens.packageName,
+            screenContext    = tokens.screenContext,
+            ocrSource        = tokens.source,
+            emojis           = tokens.emojis,
+            timestamp        = tokens.timestamp,
+            error            = message,
+            detectedUsername = tokens.detectedUsername
         )
     }
 
     fun toMap(): Map<String, Any?> = mapOf(
-        "label"          to label,
-        "risk_score"     to riskScore,
-        "alert_level"    to alertLevel.name,
-        "all_scores"     to allScores,
-        "has_risk"       to hasRisk,
-        "package_name"   to packageName,
-        "screen_context" to screenContext.name,
-        "ocr_source"     to ocrSource.name,
-        "emojis"         to emojis,
-        "timestamp"      to timestamp,
-        "error"          to error
+        "label"             to label,
+        "risk_score"        to riskScore,
+        "alert_level"       to alertLevel.name,
+        "all_scores"        to allScores,
+        "has_risk"          to hasRisk,
+        "package_name"      to packageName,
+        "screen_context"    to screenContext.name,
+        "ocr_source"        to ocrSource.name,
+        "emojis"            to emojis,
+        "timestamp"         to timestamp,
+        "error"             to error,
+        "detected_username" to detectedUsername
     )
 }
 

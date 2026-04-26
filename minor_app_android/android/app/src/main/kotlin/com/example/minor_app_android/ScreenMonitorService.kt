@@ -75,18 +75,16 @@ class ScreenMonitorService : Service() {
         // Inicializar NLP — intentar GPU, fallback a CPU automático
         nlpProcessor = NlpProcessor(applicationContext)
         nlpProcessor.initialize()
-            .onSuccess {
-                Log.d(TAG, "NLP processor ready")
-                sendToFlutter("nlp_ready", mapOf(
-                    "timestamp" to System.currentTimeMillis()
-                ))
-            }
-            .onFailure { e ->
-                Log.e(TAG, "NLP initialization failed", e)
-                sendToFlutter("nlp_init_error", mapOf(
-                    "error" to (e.message ?: "Error desconocido")
-                ))
-            }
+            .onSuccess { Log.d(TAG, "NLP processor ready") }
+            .onFailure { e -> Log.e(TAG, "NLP initialization failed: ${e.message}") }
+
+        // Inicializar ApiClient y auto-registrar dispositivo
+        ApiClient.initialize(applicationContext)
+        executor.execute {
+            ApiClient.autoRegister(applicationContext)
+                .onSuccess { id -> Log.d(TAG, "Device registered, minorId=$id") }
+                .onFailure { e -> Log.e(TAG, "Auto-register failed: ${e.message}") }
+        }
 
         isRunning = true
     }
@@ -151,8 +149,16 @@ class ScreenMonitorService : Service() {
                 screenContext = AppAccessibilityService.ScreenContext.valueOf(
                     extras.getString("screen_context", "UNKNOWN")
                 ),
-                timestamp     = extras.getLong("timestamp", System.currentTimeMillis())
+                timestamp     = extras.getLong("timestamp", System.currentTimeMillis()),
+                detectedUsername = extras.getString("detected_username")
             )
+            
+            val visionLabel = extras.getString("vision_label")
+            val visionFlagged = extras.getBoolean("vision_flagged", false)
+            
+            if (visionFlagged) {
+                Log.d(TAG, "Multimodal detection: Vision flagged as $visionLabel")
+            }
             Log.d(
                 TAG,
                 "Received OCR tokens package=${tokens.packageName}, context=${tokens.screenContext}, source=${tokens.source}, textLength=${tokens.cleanText.length}, emojis=${tokens.emojis.size}"
@@ -168,36 +174,38 @@ class ScreenMonitorService : Service() {
                 ))
             }
 
-            // Pasar al NLP directamente
-            processWithNlp(tokens)
+            // Pasar al NLP directamente, incluyendo info de visión si existe
+            processMultimodal(tokens, visionLabel, visionFlagged)
         }
     }
 
-    private fun processWithNlp(tokens: OcrTokens) {
-        // Si el texto está vacío y no hay emojis, no vale la pena analizar
-        if (tokens.cleanText.isBlank() && tokens.emojis.isEmpty()) return
+    private fun processMultimodal(tokens: OcrTokens, visionLabel: String?, visionFlagged: Boolean) {
+        // Si no hay nada que analizar en ninguna modalidad, salir
+        if (tokens.cleanText.isBlank() && tokens.emojis.isEmpty() && !visionFlagged) return
 
         val result = nlpProcessor.analyze(tokens)
-        Log.d(
-            TAG,
-            "NLP analyzed label=${result.label}, risk=${result.riskScore}, alert=${result.alertLevel}, hasRisk=${result.hasRisk}, error=${result.error}"
-        )
-
-        when {
-            result.error != null -> {
-                // Error en inferencia — encolar para reintentar
-                enqueuePending(tokens)
+        
+        // Si Vision detectó algo crítico, forzamos alerta o subimos score
+        val finalResult = if (visionFlagged && visionLabel != null) {
+            if (visionLabel.contains("RECLUTAMIENTO")) {
+                result.copy(
+                    alertLevel = AlertLevel.CRITICAL,
+                    hasRisk = true,
+                    label = "vision_alert_$visionLabel"
+                )
+            } else {
+                result.copy(hasRisk = true)
             }
-
-            result.hasRisk -> {
-                handleNlpResult(result)
-            }
-
-            // Sin riesgo — no hacer nada, no saturar Flutter ni DB
+        } else {
+            result
         }
+
+        // Siempre procesar y subir al backend — la police app necesita
+        // visibilidad completa de toda la actividad del menor
+        handleNlpResult(finalResult, if (visionFlagged) visionLabel else null)
     }
 
-    private fun handleNlpResult(result: NlpResult) {
+    private fun handleNlpResult(result: NlpResult, visionLabel: String? = null) {
         Log.d(TAG, "Handling NLP risk result ${result.toMap()}")
         // Actualizar notificación según nivel
         when (result.alertLevel) {
@@ -211,8 +219,51 @@ class ScreenMonitorService : Service() {
             sendToFlutter("nlp_result", result.toMap())
         }
 
-        // TODO: persistir en Room
-        // TODO: si alertLevel >= HIGH, enviar al backend
+        // Subir al backend
+        executor.execute {
+            val platform = ApiClient.mapPackageToPlatform(result.packageName)
+            val summary = buildEventSummary(result, visionLabel, platform)
+
+            ApiClient.postAiEvent(
+                context       = applicationContext,
+                source        = if (visionLabel != null) "VISION" else "NLP",
+                platform      = platform,
+                riskType      = result.label,
+                riskLevel     = result.alertLevel.name,
+                summary       = summary,
+                rawText       = result.toMap()["raw_text"]?.toString()?.take(500),
+                emojiTags     = result.emojis,
+                score         = result.riskScore,
+                visionLabel   = visionLabel,
+                screenContext = result.screenContext.name,
+                detectedUser  = result.detectedUsername
+            ).onSuccess { eventId ->
+                Log.d(TAG, "Event uploaded to backend: $eventId")
+                mainHandler.post {
+                    sendToFlutter("event_uploaded", mapOf(
+                        "event_id" to eventId,
+                        "risk_level" to result.alertLevel.name
+                    ))
+                }
+            }.onFailure { e ->
+                Log.e(TAG, "Failed to upload event: ${e.message}")
+            }
+        }
+    }
+
+    private fun buildEventSummary(result: NlpResult, visionLabel: String?, platform: String): String {
+        val parts = mutableListOf<String>()
+
+        if (visionLabel != null) {
+            parts.add("Vision: $visionLabel")
+        }
+        if (result.label != "safe" && !result.label.startsWith("vision_")) {
+            parts.add("NLP: ${result.label} (${String.format("%.1f%%", result.riskScore * 100)})")
+        }
+        parts.add("en $platform")
+        parts.add("contexto: ${result.screenContext.name}")
+
+        return parts.joinToString(" | ")
     }
 
     // ══════════════════════════════════════════════════
@@ -231,7 +282,8 @@ class ScreenMonitorService : Service() {
         executor.execute {
             while (pendingResults.isNotEmpty()) {
                 val tokens = pendingResults.removeFirst()
-                processWithNlp(tokens)
+                // Process pending text tokens without vision info
+                processMultimodal(tokens, null, false)
             }
         }
     }

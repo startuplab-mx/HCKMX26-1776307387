@@ -56,6 +56,20 @@ struct EvidenceView: View {
                             .font(.system(size: 14))
                             .foregroundColor(.primary)
                     )
+
+                Button {
+                    viewModel.fetchReports()
+                } label: {
+                    Circle()
+                        .fill(Color.green.opacity(0.12))
+                        .frame(width: 32, height: 32)
+                        .overlay(
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.primary)
+                        )
+                }
+                .buttonStyle(.plain)
                 
                 Circle()
                     .fill(Color.orange.opacity(0.3))
@@ -135,19 +149,49 @@ struct EvidenceView: View {
                     
                     Divider()
                         .padding(.vertical, 8)
+
+                    if viewModel.isLoading {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            Text("Cargando eventos de IA")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal)
+                    }
+
+                    if let errorMessage = viewModel.errorMessage {
+                        HStack(spacing: 10) {
+                            Image(systemName: "wifi.exclamationmark")
+                                .foregroundColor(.orange)
+                            Text(errorMessage)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Button("Reintentar") {
+                                viewModel.fetchReports()
+                            }
+                            .font(.system(size: 13, weight: .semibold))
+                        }
+                        .padding(12)
+                        .background(Color.orange.opacity(0.08))
+                        .cornerRadius(8)
+                        .padding(.horizontal)
+                    }
                     
                     // Header
                     HStack(alignment: .bottom) {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Recent Reports")
+                            Text("Eventos de IA recientes")
                                 .font(.system(size: 20, weight: .bold))
                                 .foregroundColor(Color(red: 0.1, green: 0.15, blue: 0.3)) // Dark blueish
-                            Text("Showing \(viewModel.filteredReports.count) active cases")
+                            Text("Mostrando \(viewModel.filteredReports.count) eventos detectados")
                                 .font(.system(size: 14))
                                 .foregroundColor(.gray)
                         }
                         Spacer()
-                        Text("Sort by: Urgent")
+                        Text("Orden: recientes")
                             .font(.system(size: 12, weight: .bold))
                             .foregroundColor(.primary)
                     }

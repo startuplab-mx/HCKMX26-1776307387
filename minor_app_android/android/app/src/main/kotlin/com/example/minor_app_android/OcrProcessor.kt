@@ -20,12 +20,13 @@ object OcrProcessor {
     // ══════════════════════════════════════════════════
     fun processFromAccessibility(content: AppAccessibilityService.ExtractedContent): OcrTokens {
         return OcrTokens(
-            cleanText     = cleanText(content.rawText),
-            emojis        = content.emojis.distinct(),
-            source        = OcrSource.ACCESSIBILITY,
-            packageName   = content.packageName,
-            screenContext = content.screenContext,
-            timestamp     = content.timestamp
+            cleanText        = cleanText(content.rawText),
+            emojis           = content.emojis.distinct(),
+            source           = OcrSource.ACCESSIBILITY,
+            packageName      = content.packageName,
+            screenContext    = content.screenContext,
+            timestamp        = content.timestamp,
+            detectedUsername = content.detectedUsername
         )
     }
 
@@ -115,9 +116,7 @@ object OcrProcessor {
     // EXTRACTOR DE EMOJIS
     // ══════════════════════════════════════════════════
     private val emojiRegex = Regex(
-        "[\\uD83C-\\uDBFF\\uDC00-\\uDFFF]+" +
-        "|[\\u2600-\\u27FF]" +
-        "|[\\u2300-\\u23FF]"
+        "(?:[\\x{1F000}-\\x{1FAFF}]|[\\x{2600}-\\x{27BF}]|[\\x{2300}-\\x{23FF}]|[\\x{FE0E}\\x{FE0F}]|\\x{200D})+"
     )
 
     private fun extractEmojis(text: String): List<String> {
@@ -163,25 +162,27 @@ enum class OcrSource {
 // OUTPUT — tokens listos para el NLP
 // ══════════════════════════════════════════════════
 data class OcrTokens(
-    val cleanText:     String,
-    val emojis:        List<String>,
-    val source:        OcrSource,
-    val packageName:   String,
-    val screenContext: AppAccessibilityService.ScreenContext,
-    val timestamp:     Long,
-    val confidence:    Float? = null,   // Solo presente si source == ML_KIT
-    val error:         String? = null   // Solo presente si hubo fallo
+    val cleanText:        String,
+    val emojis:           List<String>,
+    val source:           OcrSource,
+    val packageName:      String,
+    val screenContext:    AppAccessibilityService.ScreenContext,
+    val timestamp:        Long,
+    val confidence:       Float? = null,
+    val error:            String? = null,
+    val detectedUsername: String? = null
 ) {
     val isValid: Boolean get() = error == null && cleanText.isNotBlank()
 
     fun toMap(): Map<String, Any?> = mapOf(
-        "clean_text"     to cleanText,
-        "emojis"         to emojis,
-        "source"         to source.name,
-        "package_name"   to packageName,
-        "screen_context" to screenContext.name,
-        "timestamp"      to timestamp,
-        "confidence"     to confidence,
-        "is_valid"       to isValid
+        "clean_text"        to cleanText,
+        "emojis"            to emojis,
+        "source"            to source.name,
+        "package_name"      to packageName,
+        "screen_context"    to screenContext.name,
+        "timestamp"         to timestamp,
+        "confidence"        to confidence,
+        "is_valid"          to isValid,
+        "detected_username" to detectedUsername
     )
 }
