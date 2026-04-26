@@ -7,13 +7,29 @@ class CommandCenterViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var selectedSeverity: ReportSeverity?
+    @Published var selectedSource: String?
+    @Published var selectedStatus: ReportStatus?
 
     private let eventsURL = URL(string: "http://127.0.0.1:3000/ai-events")!
 
     var filteredReports: [Report] {
         reports.filter { report in
-            matchesSelectedSeverity(report) && matchesSearchText(report)
+            matchesSelectedSeverity(report)
+                && matchesSelectedSource(report)
+                && matchesSelectedStatus(report)
+                && matchesSearchText(report)
         }
+    }
+
+    var availableSources: [String] {
+        Array(Set(reports.map(\.source))).sorted()
+    }
+
+    var hasActiveFilters: Bool {
+        selectedSeverity != nil
+            || selectedSource != nil
+            || selectedStatus != nil
+            || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     
     init() {
@@ -34,6 +50,29 @@ class CommandCenterViewModel: ObservableObject {
 
     func count(for severity: ReportSeverity) -> Int {
         reports.filter { $0.severity == severity }.count
+    }
+
+    func count(for source: String) -> Int {
+        reports.filter { $0.source == source }.count
+    }
+
+    func count(for status: ReportStatus) -> Int {
+        reports.filter { $0.status == status }.count
+    }
+
+    func toggleSource(_ source: String) {
+        selectedSource = selectedSource == source ? nil : source
+    }
+
+    func toggleStatus(_ status: ReportStatus) {
+        selectedStatus = selectedStatus == status ? nil : status
+    }
+
+    func clearFilters() {
+        searchText = ""
+        selectedSeverity = nil
+        selectedSource = nil
+        selectedStatus = nil
     }
     
     func fetchReports() {
@@ -88,6 +127,22 @@ class CommandCenterViewModel: ObservableObject {
         }
 
         return report.severity == selectedSeverity
+    }
+
+    private func matchesSelectedSource(_ report: Report) -> Bool {
+        guard let selectedSource else {
+            return true
+        }
+
+        return report.source == selectedSource
+    }
+
+    private func matchesSelectedStatus(_ report: Report) -> Bool {
+        guard let selectedStatus else {
+            return true
+        }
+
+        return report.status == selectedStatus
     }
 
     private func matchesSearchText(_ report: Report) -> Bool {

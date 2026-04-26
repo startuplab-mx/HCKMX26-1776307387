@@ -28,7 +28,7 @@ object ApiClient {
 
     // URL del backend — IP local de la máquina de desarrollo
     // Cambiar si cambia la red
-    private var baseUrl = "http://192.168.110.131:3000"
+    private var baseUrl = "http://192.168.1.99:3000"
 
     private var minorId: String? = null
     private var deviceId: String? = null

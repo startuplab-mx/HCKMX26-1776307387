@@ -202,10 +202,19 @@ class ScreenMonitorService : Service() {
 
         // Siempre procesar y subir al backend — la police app necesita
         // visibilidad completa de toda la actividad del menor
-        handleNlpResult(finalResult, if (visionFlagged) visionLabel else null)
+        handleNlpResult(finalResult, if (visionFlagged) visionLabel else null, tokens.cleanText)
     }
 
-    private fun handleNlpResult(result: NlpResult, visionLabel: String? = null) {
+    // Paquetes que activan extracción de username via OpenRouter
+    // TODO: quitar WhatsApp después de pruebas
+    private val openRouterUsernamePackages = setOf(
+        "com.zhiliaoapp.musically",
+        "com.ss.android.ugc.trill",
+        "com.whatsapp",
+        "com.whatsapp.w4b"
+    )
+
+    private fun handleNlpResult(result: NlpResult, visionLabel: String? = null, ocrText: String = "") {
         Log.d(TAG, "Handling NLP risk result ${result.toMap()}")
         // Actualizar notificación según nivel
         when (result.alertLevel) {
@@ -214,12 +223,47 @@ class ScreenMonitorService : Service() {
             else                -> { /* mantener notificación actual */ }
         }
 
-        // Enviar a Flutter para mostrar en UI
+        // Si hay riesgo en app objetivo → buscar username con OpenRouter antes de enviar
+        if (result.hasRisk && result.packageName in openRouterUsernamePackages) {
+            executor.execute {
+                Log.d(TAG, "Sending OCR text to OpenRouter (${ocrText.length} chars): ${ocrText.take(100)}...")
+                val username = OpenRouterClient.extractUsername(ocrText)
+                Log.d(TAG, "TikTok username encontrado: $username")
+
+                // Actualizar el resultado con el username extraído
+                val enrichedResult = if (username != null) {
+                    result.copy(detectedUsername = username)
+                } else {
+                    result
+                }
+
+                // Enviar a Flutter con el username incluido
+                mainHandler.post {
+                    val data = enrichedResult.toMap().toMutableMap()
+                    data["tiktok_username"] = username ?: "desconocido"
+                    sendToFlutter("nlp_result", data)
+                }
+
+                // Subir al backend con el username enriquecido
+                uploadToBackend(enrichedResult, visionLabel)
+            }
+            return
+        }
+
+        // Flujo normal para otras apps
         mainHandler.post {
             sendToFlutter("nlp_result", result.toMap())
         }
 
         // Subir al backend
+        uploadToBackend(result, visionLabel)
+    }
+
+    /**
+     * Sube el evento al backend — extraído como método para reutilizar
+     * en el flujo normal y en el flujo de TikTok con username.
+     */
+    private fun uploadToBackend(result: NlpResult, visionLabel: String? = null) {
         executor.execute {
             val platform = ApiClient.mapPackageToPlatform(result.packageName)
             val summary = buildEventSummary(result, visionLabel, platform)

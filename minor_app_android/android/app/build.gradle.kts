@@ -4,10 +4,22 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Leer OPENROUTER_API_KEY de local.properties (NO commitear)
+val localPropertiesFile = rootProject.file("local.properties")
+val openRouterApiKey: String = if (localPropertiesFile.exists()) {
+    localPropertiesFile.readLines()
+        .firstOrNull { it.startsWith("OPENROUTER_API_KEY=") }
+        ?.substringAfter("=")?.trim() ?: ""
+} else ""
+
 android {
     namespace = "com.example.minor_app_android"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
+
+    buildFeatures {
+        buildConfig = true
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -24,6 +36,13 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // OpenRouter API key — leer de local.properties (NO commitear)
+        buildConfigField(
+            "String",
+            "OPENROUTER_API_KEY",
+            "\"$openRouterApiKey\""
+        )
     }
 
     buildTypes {
