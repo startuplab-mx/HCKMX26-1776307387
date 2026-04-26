@@ -164,3 +164,4 @@ Durante el desarrollo se utilizaron herramientas de IA como apoyo para ideacion,
 - Axel Eduardo Urbina Secundino
 - Luis Mario Albino Merino
 - Mauricio Carreola Cuevas
+- Ali Gael Lopez Casimiro
